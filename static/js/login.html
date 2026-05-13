@@ -1,0 +1,793 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Jatayu – Sign In</title>
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: [
+                "-apple-system",
+                "BlinkMacSystemFont",
+                "Segoe UI",
+                "Helvetica",
+                "Arial",
+                "sans-serif",
+              ],
+            },
+          },
+        },
+      };
+    </script>
+
+    <script
+      src="https://unpkg.com/@phosphor-icons/web@2.1.1/src/index.js"
+      defer
+    ></script>
+
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial,
+          sans-serif;
+        background: #000000;
+        color: #ffffff;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+      }
+
+      /* Subtle noise texture */
+      body::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
+        pointer-events: none;
+        opacity: 0.4;
+      }
+
+      /* Auth card */
+      .auth-card {
+        background: rgba(18, 18, 18, 0.6);
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+        backdrop-filter: blur(20px);
+        border-radius: 16px;
+      }
+
+      /* Input fields */
+      .input-field {
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        color: #ffffff;
+        transition: all 0.2s ease;
+        border-radius: 10px;
+        font-size: 15px;
+      }
+
+      .input-field::placeholder {
+        color: rgba(255, 255, 255, 0.3);
+      }
+
+      .input-field:focus {
+        border-color: rgba(255, 255, 255, 0.2);
+        background: rgba(255, 255, 255, 0.06);
+        outline: none;
+        box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.04);
+      }
+
+      /* Primary button */
+      .btn-primary {
+        background: #ffffff;
+        color: #000000;
+        font-weight: 600;
+        transition: all 0.2s ease;
+        border-radius: 10px;
+        font-size: 15px;
+      }
+
+      .btn-primary:hover {
+        background: rgba(255, 255, 255, 0.9);
+        transform: translateY(-1px);
+      }
+
+      .btn-primary:active {
+        transform: translateY(0);
+      }
+
+      /* Secondary button */
+      .btn-secondary {
+        background: rgba(255, 255, 255, 0.06);
+        color: #ffffff;
+        font-weight: 500;
+        transition: all 0.2s ease;
+        border-radius: 10px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+      }
+
+      .btn-secondary:hover {
+        background: rgba(255, 255, 255, 0.1);
+        border-color: rgba(255, 255, 255, 0.12);
+      }
+
+      /* Tab buttons */
+      .tab-btn {
+        background: transparent;
+        color: rgba(255, 255, 255, 0.5);
+        transition: all 0.2s ease;
+        font-weight: 500;
+        font-size: 14px;
+        padding: 8px 16px;
+        border-radius: 8px;
+      }
+
+      .tab-btn:hover {
+        color: rgba(255, 255, 255, 0.8);
+      }
+
+      .tab-btn.active {
+        background: rgba(255, 255, 255, 0.08);
+        color: #ffffff;
+      }
+
+      /* Logo */
+      .logo-mark {
+        width: 56px;
+        height: auto;
+        object-fit: contain;
+        filter: drop-shadow(0 4px 14px rgba(62, 228, 255, 0.22));
+      }
+
+      .logo-text {
+        font-size: 28px;
+        font-weight: 600;
+        letter-spacing: -0.5px;
+      }
+
+      /* Demo credentials */
+      .demo-btn {
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        border-radius: 8px;
+        transition: all 0.2s ease;
+        padding: 12px;
+        text-align: left;
+      }
+
+      .demo-btn:hover {
+        background: rgba(255, 255, 255, 0.06);
+        border-color: rgba(255, 255, 255, 0.1);
+      }
+
+      /* Label styling */
+      .form-label {
+        font-size: 13px;
+        font-weight: 500;
+        color: rgba(255, 255, 255, 0.7);
+        letter-spacing: -0.1px;
+      }
+
+      /* Fade in animation */
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
+          transform: translateY(10px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      .auth-card {
+        animation: fadeIn 0.5s ease;
+      }
+
+      /* Smooth transitions */
+      * {
+        transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+      }
+    </style>
+  </head>
+
+  <body
+    class="min-h-screen flex flex-col items-center justify-center p-6 gap-0"
+  >
+    <div class="auth-card p-10 w-full max-w-md">
+      <!-- Logo -->
+      <div class="text-center mb-10">
+        <div class="flex items-center justify-center gap-3 mb-3">
+          <img
+            src="/static/assets/jatayu-logo.png"
+            alt="Jatayu Logo"
+            class="logo-mark"
+          />
+          <h1 class="logo-text">Jatayu</h1>
+        </div>
+        <p style="font-size: 14px; color: rgba(255, 255, 255, 0.4)">
+          Autonomous Fraud Detection Network
+        </p>
+      </div>
+
+      <!-- Tabs -->
+      <div
+        class="flex gap-1 mb-8"
+        style="
+          background: rgba(255, 255, 255, 0.04);
+          border-radius: 10px;
+          padding: 4px;
+        "
+      >
+        <button
+          onclick="showTab('login')"
+          id="tab-login"
+          class="tab-btn active flex-1 py-2"
+        >
+          Sign In
+        </button>
+        <button
+          onclick="showTab('register')"
+          id="tab-register"
+          class="tab-btn flex-1 py-2"
+        >
+          Register
+        </button>
+      </div>
+
+      <!-- Login Form -->
+      <form id="login-form" onsubmit="handleLogin(event)" class="space-y-5">
+        <div>
+          <label class="form-label block mb-2"> Email </label>
+          <input
+            type="email"
+            id="login-email"
+            required
+            placeholder="you@example.com"
+            class="input-field w-full px-4 py-3"
+          />
+        </div>
+        <div>
+          <label class="form-label block mb-2"> Password </label>
+          <input
+            type="password"
+            id="login-password"
+            required
+            placeholder="Enter your password"
+            class="input-field w-full px-4 py-3"
+          />
+        </div>
+        <button type="submit" class="btn-primary w-full py-3 mt-2">
+          Continue
+        </button>
+
+        <div
+          id="login-error"
+          class="hidden text-sm text-center mt-3"
+          style="color: #ff4444; font-weight: 500"
+        ></div>
+        <div
+          id="login-suspended-action"
+          class="hidden text-sm text-center mt-3"
+        >
+          <a
+            href="/suspended"
+            class="inline-flex items-center gap-2 px-4 py-2 rounded-lg"
+            style="
+              background: rgba(255, 180, 0, 0.15);
+              color: #fbbf24;
+              font-weight: 500;
+              text-decoration: none;
+            "
+          >
+            <i class="ph ph-headset"></i> Contact Support to Resolve
+          </a>
+        </div>
+
+        <!-- Demo Credentials -->
+        <div
+          class="mt-8 pt-6"
+          style="border-top: 1px solid rgba(255, 255, 255, 0.06)"
+        >
+          <p class="text-xs mb-4" style="color: rgba(255, 255, 255, 0.4)">
+            Demo Accounts
+          </p>
+          <!-- Customer + Merchant side by side -->
+          <div class="grid grid-cols-2 gap-3">
+            <button
+              type="button"
+              onclick="fillDemo('alice@demo.com', 'demo123')"
+              class="demo-btn"
+            >
+              <div
+                style="
+                  color: rgba(255, 255, 255, 0.5);
+                  font-size: 10px;
+                  font-weight: 600;
+                  letter-spacing: 0.6px;
+                  text-transform: uppercase;
+                  margin-bottom: 5px;
+                "
+              >
+                Customer
+              </div>
+              <div
+                style="
+                  color: rgba(255, 255, 255, 0.9);
+                  font-weight: 500;
+                  font-size: 12px;
+                "
+              >
+                alice@demo.com
+              </div>
+              <div
+                style="
+                  color: rgba(255, 255, 255, 0.35);
+                  font-size: 11px;
+                  margin-top: 2px;
+                "
+              >
+                demo123
+              </div>
+            </button>
+            <button
+              type="button"
+              onclick="fillDemo('amazon@demo.com', 'demo123')"
+              class="demo-btn"
+            >
+              <div
+                style="
+                  color: rgba(255, 255, 255, 0.5);
+                  font-size: 10px;
+                  font-weight: 600;
+                  letter-spacing: 0.6px;
+                  text-transform: uppercase;
+                  margin-bottom: 5px;
+                "
+              >
+                Merchant
+              </div>
+              <div
+                style="
+                  color: rgba(255, 255, 255, 0.9);
+                  font-weight: 500;
+                  font-size: 12px;
+                "
+              >
+                amazon@demo.com
+              </div>
+              <div
+                style="
+                  color: rgba(255, 255, 255, 0.35);
+                  font-size: 11px;
+                  margin-top: 2px;
+                "
+              >
+                demo123
+              </div>
+            </button>
+          </div>
+          <!-- Admin on its own row -->
+          <button
+            type="button"
+            onclick="fillDemo('admin@jatayu.com', 'admin123')"
+            class="demo-btn w-full flex items-center justify-between mt-3"
+          >
+            <div>
+              <div
+                style="
+                  color: rgba(255, 255, 255, 0.5);
+                  font-size: 10px;
+                  font-weight: 600;
+                  letter-spacing: 0.6px;
+                  text-transform: uppercase;
+                  margin-bottom: 5px;
+                "
+              >
+                Admin
+              </div>
+              <div
+                style="
+                  color: rgba(255, 255, 255, 0.9);
+                  font-weight: 500;
+                  font-size: 12px;
+                "
+              >
+                admin@jatayu.com
+              </div>
+              <div
+                style="
+                  color: rgba(255, 255, 255, 0.35);
+                  font-size: 11px;
+                  margin-top: 2px;
+                "
+              >
+                admin123
+              </div>
+            </div>
+            <span
+              style="
+                font-size: 10px;
+                color: rgba(255, 255, 255, 0.3);
+                background: rgba(255, 255, 255, 0.05);
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                border-radius: 6px;
+                padding: 3px 8px;
+              "
+              >Full access</span
+            >
+          </button>
+        </div>
+      </form>
+
+      <!-- Register Form -->
+      <form
+        id="register-form"
+        onsubmit="handleRegister(event)"
+        class="space-y-5 hidden"
+      >
+        <div>
+          <label class="form-label block mb-2"> Full Name </label>
+          <input
+            type="text"
+            id="reg-name"
+            required
+            placeholder="John Doe"
+            class="input-field w-full px-4 py-3"
+          />
+        </div>
+        <div>
+          <label class="form-label block mb-2"> Email </label>
+          <input
+            type="email"
+            id="reg-email"
+            required
+            placeholder="you@example.com"
+            class="input-field w-full px-4 py-3"
+          />
+        </div>
+        <div>
+          <label class="form-label block mb-2"> Password </label>
+          <input
+            type="password"
+            id="reg-password"
+            required
+            minlength="6"
+            placeholder="Create a password"
+            class="input-field w-full px-4 py-3"
+          />
+        </div>
+        <div>
+          <label class="form-label block mb-2"> Account Type </label>
+          <select id="reg-type" class="input-field w-full px-4 py-3">
+            <option value="CUSTOMER">Customer</option>
+            <option value="MERCHANT">Merchant</option>
+          </select>
+        </div>
+        <div id="business-name-field" class="hidden">
+          <label class="form-label block mb-2"> Business Name </label>
+          <input
+            type="text"
+            id="reg-business"
+            placeholder="Your Business LLC"
+            class="input-field w-full px-4 py-3"
+          />
+        </div>
+        <button type="submit" class="btn-primary w-full py-3 mt-2">
+          Create Account
+        </button>
+        <div
+          id="register-error"
+          class="hidden text-sm text-center mt-3"
+          style="color: #ff4444; font-weight: 500"
+        ></div>
+      </form>
+    </div>
+
+    <!-- ── Batch Demo Entry Point ──────────────────────────────────────── -->
+    <div class="w-full max-w-md" style="animation: fadeIn 0.5s ease 0.2s both">
+      <!-- Connector line -->
+      <div
+        style="
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          padding: 0 4px;
+          margin: 14px 0;
+        "
+      >
+        <div
+          style="flex: 1; height: 1px; background: rgba(255, 255, 255, 0.06)"
+        ></div>
+        <span
+          style="
+            font-size: 11px;
+            color: rgba(255, 255, 255, 0.25);
+            white-space: nowrap;
+          "
+          >or try without an account</span
+        >
+        <div
+          style="flex: 1; height: 1px; background: rgba(255, 255, 255, 0.06)"
+        ></div>
+      </div>
+      <a
+        href="/batch"
+        style="
+          display: flex;
+          align-items: center;
+          gap: 14px;
+          background: rgba(255, 255, 255, 0.03);
+          border: 1px solid rgba(255, 255, 255, 0.08);
+          border-radius: 14px;
+          padding: 16px 20px;
+          text-decoration: none;
+          color: #fff;
+          transition: all 0.2s ease;
+          width: 100%;
+        "
+        onmouseover="
+          this.style.background = 'rgba(99,102,241,0.08)';
+          this.style.borderColor = 'rgba(99,102,241,0.25)';
+        "
+        onmouseout="
+          this.style.background = 'rgba(255,255,255,0.03)';
+          this.style.borderColor = 'rgba(255,255,255,0.08)';
+        "
+      >
+        <!-- Icon -->
+        <span
+          style="
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            width: 42px;
+            height: 42px;
+            border-radius: 12px;
+            background: rgba(99, 102, 241, 0.15);
+            border: 1px solid rgba(99, 102, 241, 0.3);
+          "
+        >
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="#818cf8"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path
+              d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"
+            />
+            <polyline points="14 2 14 8 20 8" />
+            <line x1="12" y1="18" x2="12" y2="12" />
+            <line x1="9" y1="15" x2="15" y2="15" />
+          </svg>
+        </span>
+        <!-- Text -->
+        <span style="flex: 1; min-width: 0">
+          <span
+            style="
+              display: block;
+              font-size: 14px;
+              font-weight: 600;
+              color: rgba(255, 255, 255, 0.9);
+              margin-bottom: 3px;
+            "
+            >Try Batch CSV Demo</span
+          >
+          <span
+            style="
+              display: block;
+              font-size: 12px;
+              font-weight: 400;
+              color: rgba(255, 255, 255, 0.38);
+            "
+            >Upload PaySim data &amp; run the full fraud pipeline</span
+          >
+        </span>
+        <!-- Arrow -->
+        <svg
+          style="flex-shrink: 0; opacity: 0.3"
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <polyline points="9 18 15 12 9 6" />
+        </svg>
+      </a>
+    </div>
+
+    <script>
+      function setAuthCookie(accessToken) {
+        document.cookie = `jatayu_token=${encodeURIComponent(
+          accessToken,
+        )}; Max-Age=86400; Path=/; SameSite=Lax`;
+      }
+
+      function clearAuthState() {
+        localStorage.removeItem("jatayu_token");
+        localStorage.removeItem("jatayu_refresh_token");
+        localStorage.removeItem("jatayu_user");
+        document.cookie = "jatayu_token=; Max-Age=0; Path=/; SameSite=Lax";
+      }
+
+      async function bootstrapAuthRedirect() {
+        const token = localStorage.getItem("jatayu_token");
+        if (!token) return;
+
+        try {
+          const res = await fetch("/auth/me", {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+
+          if (!res.ok) {
+            clearAuthState();
+            return;
+          }
+
+          const user = await res.json();
+          localStorage.setItem("jatayu_user", JSON.stringify(user));
+          setAuthCookie(token);
+          redirectUser(user.user_type, user.account_status);
+        } catch {
+          clearAuthState();
+        }
+      }
+
+      function persistAuth(data) {
+        localStorage.setItem("jatayu_token", data.access_token);
+        localStorage.setItem("jatayu_refresh_token", data.refresh_token);
+        localStorage.setItem("jatayu_user", JSON.stringify(data.user));
+        setAuthCookie(data.access_token);
+      }
+
+      bootstrapAuthRedirect();
+
+      const ACCOUNT_RESTRICTED_PATH = "/suspended";
+
+      function redirectUser(userType, accountStatus) {
+        // Restricted accounts (suspended/blocked) go to support page ONLY
+        if (accountStatus === "SUSPENDED" || accountStatus === "BLOCKED") {
+          window.location.href = ACCOUNT_RESTRICTED_PATH;
+          return;
+        }
+        switch (userType) {
+          case "ADMIN":
+            window.location.href = "/admin";
+            break;
+          case "MERCHANT":
+            window.location.href = "/merchant";
+            break;
+          default:
+            window.location.href = "/dashboard";
+        }
+      }
+
+      function showTab(tab) {
+        document
+          .getElementById("login-form")
+          .classList.toggle("hidden", tab !== "login");
+        document
+          .getElementById("register-form")
+          .classList.toggle("hidden", tab !== "register");
+        document
+          .getElementById("tab-login")
+          .classList.toggle("active", tab === "login");
+        document
+          .getElementById("tab-register")
+          .classList.toggle("active", tab === "register");
+      }
+
+      function fillDemo(email, password) {
+        document.getElementById("login-email").value = email;
+        document.getElementById("login-password").value = password;
+      }
+
+      document.getElementById("reg-type").addEventListener("change", (e) => {
+        document
+          .getElementById("business-name-field")
+          .classList.toggle("hidden", e.target.value !== "MERCHANT");
+      });
+
+      async function handleLogin(e) {
+        e.preventDefault();
+        const email = document.getElementById("login-email").value;
+        const password = document.getElementById("login-password").value;
+        const errorEl = document.getElementById("login-error");
+        const suspendedActionEl = document.getElementById(
+          "login-suspended-action",
+        );
+        errorEl.classList.add("hidden");
+        suspendedActionEl.classList.add("hidden");
+
+        try {
+          const res = await fetch("/auth/login", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email, password }),
+          });
+
+          const data = await res.json();
+          if (!res.ok) {
+            throw new Error(data.detail || "Login failed");
+          }
+
+          persistAuth(data);
+          redirectUser(data.user.user_type, data.user.account_status);
+        } catch (err) {
+          errorEl.textContent = err.message;
+          errorEl.classList.remove("hidden");
+
+          // Show "Contact Support" link if suspension-related error
+          if (
+            err.message &&
+            (err.message.toLowerCase().includes("suspend") ||
+              err.message.toLowerCase().includes("blocked"))
+          ) {
+            suspendedActionEl.classList.remove("hidden");
+          }
+        }
+      }
+
+      async function handleRegister(e) {
+        e.preventDefault();
+        const name = document.getElementById("reg-name").value;
+        const email = document.getElementById("reg-email").value;
+        const password = document.getElementById("reg-password").value;
+        const userType = document.getElementById("reg-type").value;
+        const businessName = document.getElementById("reg-business").value;
+        const errorEl = document.getElementById("register-error");
+        errorEl.classList.add("hidden");
+
+        const body = {
+          email,
+          password,
+          display_name: name,
+          user_type: userType,
+        };
+
+        if (userType === "MERCHANT") {
+          body.business_name = businessName;
+        }
+
+        try {
+          const res = await fetch("/auth/register", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          });
+
+          const data = await res.json();
+          if (!res.ok) {
+            throw new Error(data.detail || "Registration failed");
+          }
+
+          persistAuth(data);
+          redirectUser(data.user.user_type, data.user.account_status);
+        } catch (err) {
+          errorEl.textContent = err.message;
+          errorEl.classList.remove("hidden");
+        }
+      }
+    </script>
+  </body>
+</html>

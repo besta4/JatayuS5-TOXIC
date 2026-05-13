@@ -1,0 +1,685 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Account Restricted – Jatayu</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script
+      src="https://unpkg.com/@phosphor-icons/web@2.1.1/src/index.js"
+      defer
+    ></script>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      body {
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial,
+          sans-serif;
+        background: #000000;
+        color: #ffffff;
+        -webkit-font-smoothing: antialiased;
+        min-height: 100vh;
+      }
+      body::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
+        pointer-events: none;
+        opacity: 0.4;
+        z-index: 0;
+      }
+      .card {
+        background: rgba(18, 18, 18, 0.85);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+        backdrop-filter: blur(20px);
+        border-radius: 16px;
+      }
+      .header-bar {
+        background: rgba(0, 0, 0, 0.85);
+        backdrop-filter: blur(20px);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+      }
+      .input-field {
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        color: #fff;
+        border-radius: 10px;
+        width: 100%;
+        padding: 12px 16px;
+        font-size: 14px;
+        outline: none;
+        transition: border-color 0.2s;
+        resize: vertical;
+      }
+      .input-field:focus {
+        border-color: rgba(255, 255, 255, 0.25);
+      }
+      .btn-primary {
+        background: #ffffff;
+        color: #000000;
+        font-weight: 600;
+        border-radius: 10px;
+        padding: 12px 20px;
+        font-size: 14px;
+        cursor: pointer;
+        transition: all 0.2s;
+        border: none;
+        width: 100%;
+      }
+      .btn-primary:hover {
+        background: rgba(255, 255, 255, 0.9);
+        transform: translateY(-1px);
+      }
+      .btn-secondary {
+        background: rgba(255, 255, 255, 0.06);
+        color: #ffffff;
+        font-weight: 500;
+        border-radius: 10px;
+        padding: 12px 20px;
+        font-size: 14px;
+        cursor: pointer;
+        transition: all 0.2s;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        width: 100%;
+      }
+      .btn-secondary:hover {
+        background: rgba(255, 255, 255, 0.1);
+      }
+      .ticket-item {
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(255, 255, 255, 0.07);
+        border-radius: 12px;
+        padding: 16px;
+      }
+      .msg-user {
+        background: rgba(99, 102, 241, 0.15);
+        border-radius: 10px 10px 2px 10px;
+        margin-left: 20%;
+      }
+      .msg-admin {
+        background: rgba(255, 255, 255, 0.06);
+        border-radius: 10px 10px 10px 2px;
+        margin-right: 20%;
+      }
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
+          transform: translateY(12px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+      .card {
+        animation: fadeIn 0.4s ease;
+      }
+      .badge-suspended {
+        background: rgba(245, 158, 11, 0.2);
+        color: #f59e0b;
+        border: 1px solid rgba(245, 158, 11, 0.3);
+      }
+      .badge-blocked {
+        background: rgba(239, 68, 68, 0.15);
+        color: #ef4444;
+        border: 1px solid rgba(239, 68, 68, 0.3);
+      }
+      .tab-btn {
+        padding: 8px 16px;
+        border-radius: 8px;
+        font-size: 14px;
+        font-weight: 500;
+        cursor: pointer;
+        border: none;
+        transition: all 0.2s;
+        color: rgba(255, 255, 255, 0.5);
+        background: transparent;
+      }
+      .tab-btn.active {
+        background: rgba(255, 255, 255, 0.08);
+        color: #fff;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Header -->
+    <header
+      class="header-bar sticky top-0 z-50 px-6 py-4 flex items-center justify-between"
+    >
+      <div class="flex items-center gap-3">
+        <svg
+          width="28"
+          height="28"
+          viewBox="0 0 32 32"
+          fill="none"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <rect
+            width="32"
+            height="32"
+            rx="8"
+            fill="white"
+            fill-opacity="0.08"
+          />
+          <path
+            d="M16 8L22 16L16 24L10 16L16 8Z"
+            fill="white"
+            fill-opacity="0.9"
+          />
+        </svg>
+        <span style="font-size: 17px; font-weight: 600; letter-spacing: -0.3px"
+          >Jatayu</span
+        >
+      </div>
+      <div class="flex items-center gap-4">
+        <span
+          id="user-badge"
+          class="text-xs px-3 py-1 rounded-full badge-suspended font-semibold"
+        ></span>
+        <span
+          id="user-name"
+          style="font-size: 14px; color: rgba(255, 255, 255, 0.5)"
+        ></span>
+        <button
+          onclick="logout()"
+          style="
+            font-size: 14px;
+            color: rgba(255, 255, 255, 0.4);
+            background: none;
+            border: none;
+            cursor: pointer;
+          "
+          onmouseover="this.style.color = 'rgba(255,255,255,0.9)'"
+          onmouseout="this.style.color = 'rgba(255,255,255,0.4)'"
+        >
+          Sign Out
+        </button>
+      </div>
+    </header>
+
+    <main class="max-w-2xl mx-auto p-6 relative z-10">
+      <!-- Banner -->
+      <div
+        id="status-banner"
+        class="card p-6 mb-6 border-l-4"
+        style="border-left-color: #f59e0b"
+      >
+        <div class="flex items-start gap-4">
+          <div
+            class="w-12 h-12 rounded-full flex items-center justify-center flex-shrink-0"
+            style="background: rgba(245, 158, 11, 0.15)"
+          >
+            <i
+              class="ph ph-warning-octagon text-amber-400"
+              style="font-size: 24px"
+            ></i>
+          </div>
+          <div>
+            <h1
+              id="status-title"
+              style="font-size: 18px; font-weight: 700; margin-bottom: 6px"
+            >
+              Account Suspended
+            </h1>
+            <p
+              id="status-desc"
+              style="
+                font-size: 14px;
+                color: rgba(255, 255, 255, 0.55);
+                line-height: 1.6;
+              "
+            >
+              Your account has been temporarily suspended due to suspicious
+              activity detected by our fraud prevention system. You can contact
+              our support team below to appeal this decision or request account
+              reactivation.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tabs -->
+      <div
+        class="flex gap-2 mb-6 p-1 rounded-xl"
+        style="background: rgba(255, 255, 255, 0.04)"
+      >
+        <button
+          class="tab-btn active flex-1"
+          id="tab-new"
+          onclick="showTab('new')"
+        >
+          <i class="ph ph-plus-circle mr-2"></i>New Ticket
+        </button>
+        <button
+          class="tab-btn flex-1"
+          id="tab-tickets"
+          onclick="showTab('tickets')"
+        >
+          <i class="ph ph-list-bullets mr-2"></i>My Tickets
+        </button>
+      </div>
+
+      <!-- New Ticket Form -->
+      <div id="panel-new" class="card p-6">
+        <h2 style="font-size: 16px; font-weight: 600; margin-bottom: 4px">
+          Contact Support
+        </h2>
+        <p
+          style="
+            font-size: 13px;
+            color: rgba(255, 255, 255, 0.45);
+            margin-bottom: 20px;
+          "
+        >
+          Explain why you believe your account should be reactivated. Our team
+          reviews all tickets within 24 hours.
+        </p>
+        <form onsubmit="createTicket(event)" class="space-y-4">
+          <div>
+            <label
+              style="
+                display: block;
+                font-size: 13px;
+                font-weight: 500;
+                color: rgba(255, 255, 255, 0.6);
+                margin-bottom: 8px;
+              "
+              >Subject</label
+            >
+            <input
+              type="text"
+              id="ticket-subject"
+              required
+              placeholder="e.g., Account suspended incorrectly"
+              class="input-field"
+            />
+          </div>
+          <div>
+            <label
+              style="
+                display: block;
+                font-size: 13px;
+                font-weight: 500;
+                color: rgba(255, 255, 255, 0.6);
+                margin-bottom: 8px;
+              "
+              >Your Message</label
+            >
+            <textarea
+              id="ticket-message"
+              rows="5"
+              required
+              placeholder="Describe your situation and any relevant details that might help us review your account..."
+              class="input-field"
+            ></textarea>
+          </div>
+          <button type="submit" class="btn-primary" id="create-ticket-btn">
+            <i class="ph ph-paper-plane-tilt mr-2"></i>Submit Ticket
+          </button>
+          <div
+            id="ticket-error"
+            class="hidden text-center"
+            style="color: #ef4444; font-size: 13px"
+          ></div>
+          <div
+            id="ticket-success"
+            class="hidden text-center"
+            style="color: #10b981; font-size: 13px"
+          ></div>
+        </form>
+      </div>
+
+      <!-- Ticket List -->
+      <div id="panel-tickets" class="hidden space-y-4">
+        <div class="flex items-center justify-between">
+          <h2 style="font-size: 16px; font-weight: 600">
+            Your Support Tickets
+          </h2>
+          <button
+            onclick="loadTickets()"
+            style="
+              font-size: 13px;
+              color: rgba(255, 255, 255, 0.4);
+              background: none;
+              border: none;
+              cursor: pointer;
+            "
+            onmouseover="this.style.color = 'rgba(255,255,255,0.8)'"
+            onmouseout="this.style.color = 'rgba(255,255,255,0.4)'"
+          >
+            <i class="ph ph-arrows-clockwise mr-1"></i>Refresh
+          </button>
+        </div>
+        <div id="tickets-list"></div>
+      </div>
+
+      <!-- Ticket Thread Modal -->
+      <div id="thread-panel" class="hidden card p-6 mt-4">
+        <div class="flex items-center justify-between mb-4">
+          <h3
+            id="thread-subject"
+            style="font-size: 15px; font-weight: 600"
+          ></h3>
+          <button
+            onclick="closeThread()"
+            style="
+              color: rgba(255, 255, 255, 0.5);
+              background: none;
+              border: none;
+              cursor: pointer;
+            "
+          >
+            <i class="ph ph-x"></i>
+          </button>
+        </div>
+        <div
+          id="thread-messages"
+          class="space-y-3 max-h-80 overflow-y-auto mb-4"
+        ></div>
+        <div id="thread-reply" class="space-y-3">
+          <textarea
+            id="reply-message"
+            rows="3"
+            placeholder="Type your reply..."
+            class="input-field"
+          ></textarea>
+          <button onclick="sendReply()" class="btn-primary">Send Reply</button>
+        </div>
+      </div>
+    </main>
+
+    <script>
+      const token = localStorage.getItem("jatayu_token");
+      const user = JSON.parse(localStorage.getItem("jatayu_user") || "{}");
+
+      if (!token) {
+        window.location.href = "/login";
+      }
+
+      // If user is ACTIVE, redirect to proper dashboard
+      if (user.account_status === "ACTIVE") {
+        window.location.href =
+          user.user_type === "ADMIN"
+            ? "/admin"
+            : user.user_type === "MERCHANT"
+              ? "/merchant"
+              : "/dashboard";
+      }
+
+      // Setup page
+      document.getElementById("user-name").textContent =
+        user.display_name || user.email || "";
+      const badge = document.getElementById("user-badge");
+      const banner = document.getElementById("status-banner");
+      const title = document.getElementById("status-title");
+      const desc = document.getElementById("status-desc");
+
+      if (user.account_status === "BLOCKED") {
+        badge.textContent = "BLOCKED";
+        badge.className =
+          "text-xs px-3 py-1 rounded-full badge-blocked font-semibold";
+        banner.style.borderLeftColor = "#ef4444";
+        banner.querySelector("div > div").style.background =
+          "rgba(239,68,68,0.12)";
+        banner.querySelector("i").className = "ph ph-prohibit text-red-400";
+        banner.querySelector("i").style.fontSize = "24px";
+        title.textContent = "Account Blocked";
+        desc.textContent =
+          "Your account has been blocked due to confirmed fraudulent activity. You may still contact support to dispute this decision.";
+      } else {
+        badge.textContent = "SUSPENDED";
+      }
+
+      async function apiCall(endpoint, options = {}) {
+        const headers = {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+          ...options.headers,
+        };
+        const res = await fetch(endpoint, { ...options, headers });
+        if (res.status === 401) {
+          localStorage.clear();
+          document.cookie = "jatayu_token=; Max-Age=0; Path=/; SameSite=Lax";
+          throw new Error(
+            "Session expired. Please sign in again to contact support.",
+          );
+        }
+        return res;
+      }
+
+      function showTab(tab) {
+        ["new", "tickets"].forEach((t) => {
+          document
+            .getElementById(`tab-${t}`)
+            .classList.toggle("active", t === tab);
+          document
+            .getElementById(`panel-${t}`)
+            .classList.toggle("hidden", t !== tab);
+        });
+        if (tab === "tickets") loadTickets();
+      }
+
+      async function createTicket(e) {
+        e.preventDefault();
+        const btn = document.getElementById("create-ticket-btn");
+        btn.disabled = true;
+        btn.innerHTML =
+          '<i class="ph ph-spinner animate-spin mr-2"></i>Submitting...';
+        const errEl = document.getElementById("ticket-error");
+        const okEl = document.getElementById("ticket-success");
+        errEl.classList.add("hidden");
+        okEl.classList.add("hidden");
+
+        try {
+          const res = await apiCall("/support/tickets", {
+            method: "POST",
+            body: JSON.stringify({
+              subject: document.getElementById("ticket-subject").value,
+              message: document.getElementById("ticket-message").value,
+            }),
+          });
+          const data = await res.json();
+          if (!res.ok)
+            throw new Error(data.detail || "Failed to create ticket");
+          okEl.textContent =
+            "✓ Ticket submitted! Our team will review and respond shortly.";
+          okEl.classList.remove("hidden");
+          document.getElementById("ticket-subject").value = "";
+          document.getElementById("ticket-message").value = "";
+        } catch (err) {
+          errEl.textContent = err.message;
+          if ((err.message || "").toLowerCase().includes("sign in again")) {
+            errEl.innerHTML +=
+              ' <a href="/login" style="color:#fbbf24;text-decoration:underline;font-weight:600;">Go to login</a>';
+          }
+          errEl.classList.remove("hidden");
+        } finally {
+          btn.disabled = false;
+          btn.innerHTML =
+            '<i class="ph ph-paper-plane-tilt mr-2"></i>Submit Ticket';
+        }
+      }
+
+      async function loadTickets() {
+        const list = document.getElementById("tickets-list");
+        list.innerHTML =
+          '<p style="color:rgba(255,255,255,0.4);text-align:center;padding:32px 0;font-size:14px;">Loading...</p>';
+        try {
+          const res = await apiCall("/support/tickets");
+          const data = await res.json();
+          const tickets = data.tickets || [];
+          if (!tickets.length) {
+            list.innerHTML =
+              '<p style="color:rgba(255,255,255,0.4);text-align:center;padding:32px 0;font-size:14px;">No tickets yet. Create one above to contact support.</p>';
+            return;
+          }
+          list.innerHTML = tickets
+            .map((t) => {
+              const statusColor =
+                t.status === "RESOLVED"
+                  ? "#10b981"
+                  : t.status === "IN_PROGRESS"
+                    ? "#6366f1"
+                    : "#f59e0b";
+              const statusBg =
+                t.status === "RESOLVED"
+                  ? "rgba(16,185,129,0.1)"
+                  : t.status === "IN_PROGRESS"
+                    ? "rgba(99,102,241,0.1)"
+                    : "rgba(245,158,11,0.1)";
+              return `<div class="ticket-item cursor-pointer" onclick="openThread('${t.ticket_id}', '${t.subject.replace(/'/g, "\\'")}')">
+              <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:8px;">
+                <span style="font-size:14px;font-weight:500;">${t.subject}</span>
+                <span style="font-size:11px;font-weight:600;padding:3px 10px;border-radius:20px;background:${statusBg};color:${statusColor};">${t.status}</span>
+              </div>
+              <p style="font-size:12px;color:rgba(255,255,255,0.4);">${new Date(t.created_at).toLocaleString()}</p>
+              <p style="font-size:12px;color:rgba(255,255,255,0.5);margin-top:4px;"><i class="ph ph-chat-circle mr-1"></i>${t.message_count || 0} messages · Click to view</p>
+            </div>`;
+            })
+            .join("");
+        } catch (err) {
+          if ((err.message || "").toLowerCase().includes("sign in again")) {
+            list.innerHTML =
+              '<p style="color:#ef4444;text-align:center;padding:32px 0;font-size:14px;">Session expired. <a href="/login" style="color:#fbbf24;text-decoration:underline;font-weight:600;">Go to login</a></p>';
+          } else {
+            list.innerHTML =
+              '<p style="color:#ef4444;text-align:center;padding:32px 0;font-size:14px;">Error loading tickets</p>';
+          }
+        }
+      }
+
+      let currentTicketId = null;
+      async function openThread(ticketId, subject) {
+        currentTicketId = ticketId;
+        document.getElementById("thread-subject").textContent = subject;
+        document.getElementById("thread-panel").classList.remove("hidden");
+        await loadThread(ticketId);
+      }
+
+      function closeThread() {
+        currentTicketId = null;
+        document.getElementById("thread-panel").classList.add("hidden");
+      }
+
+      async function loadThread(ticketId) {
+        const messagesEl = document.getElementById("thread-messages");
+        messagesEl.innerHTML =
+          '<p style="color:rgba(255,255,255,0.3);text-align:center;padding:16px;font-size:13px;">Loading...</p>';
+        try {
+          const res = await apiCall(`/support/tickets/${ticketId}`);
+          const data = await res.json();
+          const msgs = data.messages || [];
+          if (!msgs.length) {
+            messagesEl.innerHTML =
+              '<p style="color:rgba(255,255,255,0.3);text-align:center;padding:16px;font-size:13px;">No messages yet</p>';
+            return;
+          }
+          messagesEl.innerHTML = msgs
+            .map((m) => {
+              const isAdmin = m.sender_role === "ADMIN";
+              return `<div class="p-3 ${isAdmin ? "msg-admin" : "msg-user"}">
+              <p style="font-size:11px;font-weight:600;color:${isAdmin ? "#6366f1" : "rgba(255,255,255,0.5)"};margin-bottom:4px;">${isAdmin ? "⬥ Support Team" : "You"}</p>
+              <p style="font-size:13px;color:rgba(255,255,255,0.85);line-height:1.5;">${m.message}</p>
+              <p style="font-size:11px;color:rgba(255,255,255,0.3);margin-top:4px;">${new Date(m.sent_at).toLocaleString()}</p>
+            </div>`;
+            })
+            .join("");
+          messagesEl.scrollTop = messagesEl.scrollHeight;
+
+          // If resolved, hide reply
+          const ticket = data.ticket;
+          document.getElementById("thread-reply").style.display =
+            ticket && ["RESOLVED", "CLOSED"].includes(ticket.status)
+              ? "none"
+              : "block";
+
+          // If resolved and admin reactivated, suggest refresh
+          if (ticket && ticket.status === "RESOLVED") {
+            const refreshHint = document.createElement("p");
+            refreshHint.style.cssText =
+              "font-size:13px;color:#10b981;text-align:center;padding:8px;";
+            refreshHint.innerHTML =
+              '✓ Ticket resolved. <button onclick="checkUserStatus()" style="color:#6366f1;background:none;border:none;cursor:pointer;font-weight:600;">Check account status</button>';
+            document.getElementById("thread-panel").appendChild(refreshHint);
+          }
+        } catch (err) {
+          if ((err.message || "").toLowerCase().includes("sign in again")) {
+            messagesEl.innerHTML =
+              '<p style="color:#ef4444;text-align:center;padding:16px;font-size:13px;">Session expired. <a href="/login" style="color:#fbbf24;text-decoration:underline;font-weight:600;">Go to login</a></p>';
+          } else {
+            messagesEl.innerHTML =
+              '<p style="color:#ef4444;text-align:center;padding:16px;font-size:13px;">Error loading messages</p>';
+          }
+        }
+      }
+
+      async function sendReply() {
+        if (!currentTicketId) return;
+        const msg = document.getElementById("reply-message").value.trim();
+        if (!msg) return;
+        try {
+          const res = await apiCall(
+            `/support/tickets/${currentTicketId}/messages`,
+            {
+              method: "POST",
+              body: JSON.stringify({ message: msg }),
+            },
+          );
+          if (!res.ok) {
+            const d = await res.json();
+            throw new Error(d.detail);
+          }
+          document.getElementById("reply-message").value = "";
+          await loadThread(currentTicketId);
+        } catch (err) {
+          alert("Error: " + err.message);
+        }
+      }
+
+      async function checkUserStatus() {
+        try {
+          const res = await fetch("/auth/me", {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          const data = await res.json();
+          if (data.account_status === "ACTIVE") {
+            localStorage.setItem(
+              "jatayu_user",
+              JSON.stringify({ ...user, account_status: "ACTIVE" }),
+            );
+            alert(
+              "Your account has been reactivated! Redirecting to dashboard...",
+            );
+            window.location.href =
+              user.user_type === "MERCHANT" ? "/merchant" : "/dashboard";
+          } else {
+            alert(
+              "Account is still " +
+                data.account_status +
+                ". Please wait for admin review.",
+            );
+          }
+        } catch (err) {
+          alert("Error checking status");
+        }
+      }
+
+      function logout() {
+        fetch("/auth/logout", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+        }).finally(() => {
+          localStorage.clear();
+          document.cookie = "jatayu_token=; Max-Age=0; Path=/; SameSite=Lax";
+          window.location.href = "/login";
+        });
+      }
+    </script>
+  </body>
+</html>

@@ -1,0 +1,2536 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Admin Console – Jatayu</title>
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: [
+                "-apple-system",
+                "BlinkMacSystemFont",
+                "Segoe UI",
+                "Helvetica",
+                "Arial",
+                "sans-serif",
+              ],
+            },
+          },
+        },
+      };
+    </script>
+
+    <script
+      src="https://unpkg.com/@phosphor-icons/web@2.1.1/src/index.js"
+      defer
+    ></script>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial,
+          sans-serif;
+        background: #000000;
+        color: #ffffff;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+      }
+
+      body::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
+        pointer-events: none;
+        opacity: 0.4;
+        z-index: 0;
+      }
+
+      .card {
+        background: rgba(18, 18, 18, 0.6);
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+        backdrop-filter: blur(20px);
+        border-radius: 16px;
+        transition: all 0.2s ease;
+      }
+      .glass-card {
+        background: rgba(18, 18, 18, 0.6);
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+        backdrop-filter: blur(20px);
+        border-radius: 16px;
+      }
+
+      .card:hover {
+        border-color: rgba(255, 255, 255, 0.1);
+      }
+
+      .header-bar {
+        background: rgba(0, 0, 0, 0.8);
+        backdrop-filter: blur(20px);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+      }
+
+      .btn-primary {
+        background: #ffffff;
+        color: #000000;
+        font-weight: 600;
+        transition: all 0.2s ease;
+        border-radius: 10px;
+        font-size: 13px;
+      }
+
+      .btn-primary:hover {
+        background: rgba(255, 255, 255, 0.9);
+        transform: translateY(-1px);
+      }
+
+      .btn-secondary {
+        background: rgba(255, 255, 255, 0.06);
+        color: #ffffff;
+        font-weight: 500;
+        transition: all 0.2s ease;
+        border-radius: 10px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        font-size: 13px;
+      }
+
+      .btn-secondary:hover {
+        background: rgba(255, 255, 255, 0.1);
+        border-color: rgba(255, 255, 255, 0.12);
+      }
+
+      .status-completed {
+        color: #10b981;
+      }
+      .status-held {
+        color: #f59e0b;
+      }
+      .status-blocked {
+        color: #ef4444;
+      }
+      .risk-low {
+        color: #10b981;
+      }
+      .risk-medium {
+        color: #f59e0b;
+      }
+      .risk-high {
+        color: #f97316;
+      }
+      .risk-critical {
+        color: #ef4444;
+      }
+
+      .tab-btn {
+        padding: 12px 20px;
+        color: rgba(255, 255, 255, 0.5);
+        font-size: 14px;
+        font-weight: 500;
+        transition: all 0.2s ease;
+        border-bottom: 2px solid transparent;
+      }
+
+      .tab-btn:hover {
+        color: rgba(255, 255, 255, 0.8);
+      }
+      .tab-btn.active {
+        color: #ffffff;
+        border-bottom-color: rgba(255, 255, 255, 0.3);
+      }
+      .tab-active {
+        color: #ffffff;
+        border-bottom: 2px solid rgba(255, 255, 255, 0.3);
+      }
+      .tab-inactive {
+        color: rgba(255, 255, 255, 0.5);
+      }
+
+      /* D3 Network Visualization */
+      #fraud-network {
+        width: 100%;
+        height: 600px;
+        background: linear-gradient(
+          135deg,
+          rgba(15, 15, 25, 0.9) 0%,
+          rgba(10, 10, 18, 0.95) 100%
+        );
+        border-radius: 12px;
+        position: relative;
+        overflow: hidden;
+      }
+      #fraud-network svg {
+        width: 100%;
+        height: 100%;
+      }
+      #fraud-network .controls {
+        position: absolute;
+        top: 12px;
+        right: 12px;
+        display: flex;
+        gap: 8px;
+        z-index: 10;
+      }
+      #fraud-network .controls button {
+        background: rgba(255, 255, 255, 0.1);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        color: #fff;
+        padding: 6px 12px;
+        border-radius: 6px;
+        font-size: 12px;
+        cursor: pointer;
+        transition: all 0.2s;
+      }
+      #fraud-network .controls button:hover {
+        background: rgba(255, 255, 255, 0.2);
+      }
+      #fraud-network .controls button.active {
+        background: rgba(99, 102, 241, 0.4);
+        border-color: rgba(99, 102, 241, 0.6);
+      }
+      #fraud-network .stats-overlay {
+        position: absolute;
+        bottom: 12px;
+        left: 12px;
+        background: rgba(0, 0, 0, 0.75);
+        padding: 10px 14px;
+        border-radius: 8px;
+        font-size: 11px;
+        color: rgba(255, 255, 255, 0.8);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+      }
+      .zoom-controls {
+        position: absolute;
+        bottom: 12px;
+        right: 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        z-index: 10;
+      }
+      .zoom-controls button {
+        width: 32px;
+        height: 32px;
+        background: rgba(255, 255, 255, 0.1);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        color: #fff;
+        border-radius: 6px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 16px;
+        transition: all 0.2s;
+      }
+      .zoom-controls button:hover {
+        background: rgba(255, 255, 255, 0.25);
+      }
+      .node-critical {
+        fill: #ef4444;
+        filter: drop-shadow(0 0 10px rgba(239, 68, 68, 0.7));
+      }
+      .node-high {
+        fill: #f97316;
+        filter: drop-shadow(0 0 8px rgba(249, 115, 22, 0.6));
+      }
+      .node-held {
+        fill: #f59e0b;
+        filter: drop-shadow(0 0 6px rgba(245, 158, 11, 0.5));
+      }
+      .node-normal {
+        fill: #6366f1;
+        opacity: 0.8;
+      }
+      .node-merchant {
+        fill: #10b981;
+      }
+      .link-fraud {
+        stroke: #ef4444;
+        stroke-width: 2.5;
+        stroke-dasharray: 8, 4;
+        filter: drop-shadow(0 0 4px rgba(239, 68, 68, 0.6));
+      }
+      .link-normal {
+        stroke: rgba(99, 102, 241, 0.5);
+        stroke-width: 1.5;
+      }
+      .link-highlight {
+        stroke: #fbbf24 !important;
+        stroke-width: 3 !important;
+        stroke-dasharray: none !important;
+      }
+      .node-highlight {
+        stroke: #fbbf24 !important;
+        stroke-width: 3 !important;
+      }
+      .node-dimmed {
+        opacity: 0.2;
+      }
+      .link-dimmed {
+        opacity: 0.1;
+      }
+      .node-label {
+        font-size: 11px;
+        fill: rgba(255, 255, 255, 0.9);
+        pointer-events: none;
+        font-weight: 500;
+        text-shadow:
+          0 1px 4px rgba(0, 0, 0, 0.9),
+          0 0 8px rgba(0, 0, 0, 0.8);
+      }
+      .tooltip {
+        position: absolute;
+        background: rgba(8, 8, 12, 0.97);
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        padding: 14px 16px;
+        border-radius: 10px;
+        pointer-events: none;
+        z-index: 100;
+        max-width: 400px;
+        color: #ffffff;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+        backdrop-filter: blur(8px);
+      }
+
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
+          transform: translateY(10px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      .card {
+        animation: fadeIn 0.4s ease;
+      }
+    </style>
+  </head>
+
+  <body class="min-h-screen">
+    <!-- Header -->
+    <header
+      class="header-bar sticky top-0 z-50 px-6 py-4 flex items-center justify-between"
+    >
+      <div class="flex items-center gap-3">
+        <svg
+          width="32"
+          height="32"
+          viewBox="0 0 32 32"
+          fill="none"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <rect
+            width="32"
+            height="32"
+            rx="8"
+            fill="white"
+            fill-opacity="0.08"
+          />
+          <path
+            d="M16 8L22 16L16 24L10 16L16 8Z"
+            fill="white"
+            fill-opacity="0.9"
+          />
+        </svg>
+        <span style="font-size: 17px; font-weight: 600; letter-spacing: -0.3px"
+          >Jatayu Admin</span
+        >
+      </div>
+      <div class="flex items-center gap-4">
+        <span style="font-size: 14px; color: rgba(255, 255, 255, 0.5)"
+          >Administrator</span
+        >
+        <button
+          onclick="logout()"
+          style="
+            font-size: 14px;
+            color: rgba(255, 255, 255, 0.5);
+            background: none;
+            border: none;
+            cursor: pointer;
+            transition: color 0.2s;
+          "
+          onmouseover="this.style.color = 'rgba(255, 255, 255, 0.9)'"
+          onmouseout="this.style.color = 'rgba(255, 255, 255, 0.5)'"
+        >
+          Sign Out
+        </button>
+      </div>
+    </header>
+
+    <main class="max-w-7xl mx-auto p-6 relative z-10">
+      <!-- Stats Row -->
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+        <div class="card p-6">
+          <p
+            style="
+              font-size: 13px;
+              color: rgba(255, 255, 255, 0.5);
+              margin-bottom: 8px;
+              font-weight: 500;
+            "
+          >
+            Total Users
+          </p>
+          <p
+            id="stat-users"
+            style="font-size: 32px; font-weight: 600; letter-spacing: -1px"
+          >
+            --
+          </p>
+        </div>
+
+        <div class="card p-6">
+          <p
+            style="
+              font-size: 13px;
+              color: rgba(255, 255, 255, 0.5);
+              margin-bottom: 8px;
+              font-weight: 500;
+            "
+          >
+            Held Transactions
+          </p>
+          <p
+            id="stat-held"
+            style="
+              font-size: 32px;
+              font-weight: 600;
+              letter-spacing: -1px;
+              color: #f59e0b;
+            "
+          >
+            --
+          </p>
+        </div>
+
+        <div class="card p-6">
+          <p
+            style="
+              font-size: 13px;
+              color: rgba(255, 255, 255, 0.5);
+              margin-bottom: 8px;
+              font-weight: 500;
+            "
+          >
+            Fraud Rate
+          </p>
+          <p
+            id="stat-fraud"
+            style="
+              font-size: 32px;
+              font-weight: 600;
+              letter-spacing: -1px;
+              color: #ef4444;
+            "
+          >
+            --%
+          </p>
+        </div>
+
+        <div class="card p-6">
+          <p
+            style="
+              font-size: 13px;
+              color: rgba(255, 255, 255, 0.5);
+              margin-bottom: 8px;
+              font-weight: 500;
+            "
+          >
+            Avg Latency
+          </p>
+          <p
+            id="stat-latency"
+            style="
+              font-size: 32px;
+              font-weight: 600;
+              letter-spacing: -1px;
+              color: #10b981;
+            "
+          >
+            --ms
+          </p>
+        </div>
+      </div>
+
+      <!-- Tabs -->
+      <div class="flex gap-6 mb-6 border-b border-slate-700">
+        <button
+          onclick="showTab('held')"
+          id="tab-held"
+          class="pb-3 px-1 tab-active font-medium"
+          title="Transactions flagged by fraud detection - need manual review"
+        >
+          <i class="ph ph-pause-circle mr-2"></i>Held Transactions
+        </button>
+        <button
+          onclick="showTab('recent')"
+          id="tab-recent"
+          class="pb-3 px-1 tab-inactive font-medium"
+          title="View all recent transactions with fraud scores"
+        >
+          <i class="ph ph-list mr-2"></i>Recent Transactions
+        </button>
+        <button
+          onclick="showTab('users')"
+          id="tab-users"
+          class="pb-3 px-1 tab-inactive font-medium"
+          title="Manage users and view their risk profiles"
+        >
+          <i class="ph ph-users mr-2"></i>Users
+        </button>
+        <button
+          onclick="showTab('compliance')"
+          id="tab-compliance"
+          class="pb-3 px-1 tab-inactive font-medium"
+          title="STR/CTR reports - regulatory compliance filings"
+        >
+          <i class="ph ph-file-text mr-2"></i>Compliance
+        </button>
+        <button
+          onclick="showTab('patterns')"
+          id="tab-patterns"
+          class="pb-3 px-1 tab-inactive font-medium"
+          title="Detected fraud patterns: velocity, smurfing, mule activity"
+        >
+          <i class="ph ph-chart-pie mr-2"></i>Patterns
+        </button>
+        <button
+          onclick="showTab('network')"
+          id="tab-network"
+          class="pb-3 px-1 tab-inactive font-medium"
+          title="Visualize transaction relationships and fraud networks"
+        >
+          <i class="ph ph-graph mr-2"></i>Fraud Network
+        </button>
+        <button
+          onclick="showTab('support')"
+          id="tab-support"
+          class="pb-3 px-1 tab-inactive font-medium"
+          title="Support tickets from suspended/blocked users"
+        >
+          <i class="ph ph-chat-circle-dots mr-2"></i>Support Tickets
+        </button>
+      </div>
+
+      <!-- Tab Content -->
+      <div id="content-held" class="glass-card rounded-2xl p-6">
+        <div class="flex items-center justify-between mb-4">
+          <div>
+            <h2 class="text-lg font-semibold">
+              Held Transactions - Pending Review
+            </h2>
+            <p class="text-xs text-slate-500">
+              Transactions flagged by fraud detection. Review and approve/reject
+              manually.
+            </p>
+          </div>
+          <button
+            onclick="loadHeld()"
+            class="text-sm text-indigo-400 hover:text-indigo-300"
+          >
+            <i class="ph ph-arrows-clockwise mr-1"></i> Refresh
+          </button>
+        </div>
+        <div id="held-list" class="space-y-3">
+          <p class="text-slate-400 text-center py-8">Loading...</p>
+        </div>
+      </div>
+
+      <div id="content-recent" class="glass-card rounded-2xl p-6 hidden">
+        <div class="flex items-center justify-between mb-4">
+          <div>
+            <h2 class="text-lg font-semibold">Recent Transactions</h2>
+            <p class="text-xs text-slate-500">
+              All transactions with fraud scores - filter by risk level or
+              status.
+            </p>
+          </div>
+          <button
+            onclick="loadRecent()"
+            class="text-sm text-indigo-400 hover:text-indigo-300"
+          >
+            <i class="ph ph-arrows-clockwise mr-1"></i> Refresh
+          </button>
+        </div>
+        <div id="recent-list" class="space-y-3">
+          <p class="text-slate-400 text-center py-8">Loading...</p>
+        </div>
+      </div>
+
+      <div id="content-users" class="glass-card rounded-2xl p-6 hidden">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-lg font-semibold">User Management</h2>
+          <div class="flex gap-2">
+            <select
+              id="user-type-filter"
+              onchange="loadUsers()"
+              class="px-3 py-2 rounded-lg bg-slate-800 border border-slate-600 text-sm"
+            >
+              <option value="">All Types</option>
+              <option value="CUSTOMER">Customers</option>
+              <option value="MERCHANT">Merchants</option>
+              <option value="ADMIN">Admins</option>
+            </select>
+            <button
+              onclick="loadUsers()"
+              class="text-sm text-indigo-400 hover:text-indigo-300 px-3"
+            >
+              <i class="ph ph-arrows-clockwise mr-1"></i> Refresh
+            </button>
+          </div>
+        </div>
+        <div id="users-list" class="space-y-3">
+          <p class="text-slate-400 text-center py-8">Loading...</p>
+        </div>
+      </div>
+
+      <div id="content-compliance" class="glass-card rounded-2xl p-6 hidden">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-lg font-semibold">Compliance Reports</h2>
+          <div class="flex gap-2">
+            <button
+              onclick="loadCompliance('STR')"
+              class="px-4 py-2 rounded-lg bg-red-600/30 text-red-400 text-sm hover:bg-red-600/50"
+            >
+              STR Reports
+            </button>
+            <button
+              onclick="loadCompliance('CTR')"
+              class="px-4 py-2 rounded-lg bg-amber-600/30 text-amber-400 text-sm hover:bg-amber-600/50"
+            >
+              CTR Reports
+            </button>
+            <button
+              onclick="loadCompliance()"
+              class="px-4 py-2 rounded-lg bg-slate-600/30 text-slate-400 text-sm hover:bg-slate-600/50"
+            >
+              All
+            </button>
+          </div>
+        </div>
+        <div id="compliance-list" class="space-y-3">
+          <p class="text-slate-400 text-center py-8">Loading...</p>
+        </div>
+      </div>
+
+      <div id="content-patterns" class="glass-card rounded-2xl p-6 hidden">
+        <h2 class="text-lg font-semibold mb-4">Fraud Pattern Analysis</h2>
+        <div
+          id="patterns-content"
+          class="grid grid-cols-1 md:grid-cols-2 gap-6"
+        >
+          <p class="text-slate-400 text-center py-8">Loading...</p>
+        </div>
+      </div>
+
+      <!-- Fraud Network Visualization Tab -->
+      <div id="content-network" class="hidden">
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <!-- Network Graph -->
+          <div class="lg:col-span-2 glass-card rounded-2xl p-6">
+            <div class="flex items-center justify-between mb-4">
+              <h2 class="text-lg font-semibold">
+                <i class="ph ph-graph mr-2 text-red-400"></i>Fraud Network
+                Visualization
+              </h2>
+              <div class="flex gap-2">
+                <span class="flex items-center gap-1 text-xs"
+                  ><span class="w-3 h-3 rounded-full bg-red-500"></span>
+                  Critical</span
+                >
+                <span class="flex items-center gap-1 text-xs"
+                  ><span class="w-3 h-3 rounded-full bg-orange-500"></span>
+                  High</span
+                >
+                <span class="flex items-center gap-1 text-xs"
+                  ><span class="w-3 h-3 rounded-full bg-amber-500"></span>
+                  Held</span
+                >
+                <span class="flex items-center gap-1 text-xs"
+                  ><span class="w-3 h-3 rounded-full bg-indigo-500"></span>
+                  Normal</span
+                >
+              </div>
+            </div>
+            <div id="fraud-network"></div>
+            <p class="text-xs text-slate-500 mt-2">
+              Click on a node to see transaction details. Red dashed lines
+              indicate fraud-flagged transactions.
+            </p>
+          </div>
+
+          <!-- Flagged Transactions List -->
+          <div class="glass-card rounded-2xl p-6">
+            <h2 class="text-lg font-semibold mb-4">
+              <i class="ph ph-warning-octagon mr-2 text-amber-400"></i>Flagged
+              Transactions
+            </h2>
+            <div
+              id="flagged-list"
+              class="space-y-3 max-h-[500px] overflow-y-auto"
+            >
+              <p class="text-slate-400 text-center py-8">Loading...</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Support Tickets Tab -->
+      <div id="content-support" class="hidden">
+        <div class="glass-card rounded-2xl p-6">
+          <div class="flex items-center justify-between mb-4">
+            <div>
+              <h2 class="text-lg font-semibold">Support Tickets</h2>
+              <p class="text-xs text-slate-500">
+                Messages from suspended/blocked users requesting account review.
+              </p>
+            </div>
+            <div class="flex gap-2">
+              <button
+                onclick="loadSupport('OPEN')"
+                class="px-3 py-1.5 rounded-lg bg-amber-600/30 text-amber-400 text-xs hover:bg-amber-600/50"
+              >
+                Open
+              </button>
+              <button
+                onclick="loadSupport('IN_PROGRESS')"
+                class="px-3 py-1.5 rounded-lg bg-indigo-600/30 text-indigo-400 text-xs hover:bg-indigo-600/50"
+              >
+                In Progress
+              </button>
+              <button
+                onclick="loadSupport()"
+                class="px-3 py-1.5 rounded-lg bg-slate-600/30 text-slate-400 text-xs hover:bg-slate-600/50"
+              >
+                All
+              </button>
+            </div>
+          </div>
+          <div id="support-list" class="space-y-3">
+            <p class="text-slate-400 text-center py-8">Loading...</p>
+          </div>
+        </div>
+        <!-- Ticket Thread Panel -->
+        <div
+          id="admin-thread-panel"
+          class="hidden glass-card rounded-2xl p-6 mt-4"
+        >
+          <div class="flex items-center justify-between mb-4">
+            <div>
+              <h3
+                id="admin-thread-subject"
+                class="text-base font-semibold"
+              ></h3>
+              <p id="admin-thread-user" class="text-xs text-slate-400 mt-1"></p>
+            </div>
+            <div class="flex gap-2">
+              <button
+                id="admin-resolve-btn"
+                onclick="resolveTicket(true)"
+                class="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs hover:bg-emerald-700"
+              >
+                <i class="ph ph-check mr-1"></i>Resolve & Reactivate
+              </button>
+              <button
+                onclick="resolveTicket(false)"
+                class="px-3 py-1.5 rounded-lg bg-slate-600 text-white text-xs hover:bg-slate-700"
+              >
+                <i class="ph ph-x mr-1"></i>Close Only
+              </button>
+              <button
+                onclick="closeAdminThread()"
+                class="text-slate-400 hover:text-white text-sm"
+              >
+                <i class="ph ph-x"></i>
+              </button>
+            </div>
+          </div>
+          <div
+            id="admin-thread-messages"
+            class="space-y-3 max-h-72 overflow-y-auto mb-4 p-2"
+          ></div>
+          <div class="flex gap-2">
+            <textarea
+              id="admin-reply-msg"
+              rows="2"
+              placeholder="Reply to this user..."
+              class="flex-1 px-3 py-2 rounded-lg bg-slate-800 border border-slate-600 text-sm text-white placeholder-slate-500 resize-none"
+            ></textarea>
+            <button
+              onclick="sendAdminReply()"
+              class="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm hover:bg-indigo-700"
+            >
+              <i class="ph ph-paper-plane-tilt"></i>
+            </button>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- XAI Explanation Modal -->
+    <div
+      id="explain-modal"
+      class="fixed inset-0 bg-black/70 backdrop-blur-sm hidden z-50 flex items-center justify-center p-4"
+      onclick="handleExplainModalBackdrop(event)"
+    >
+      <div class="glass-card rounded-2xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation()">
+        <!-- Header -->
+        <div class="flex items-center justify-between mb-5">
+          <div class="flex items-center gap-3">
+            <div class="w-9 h-9 rounded-xl bg-indigo-500/20 flex items-center justify-center">
+              <i class="ph ph-brain text-indigo-400 text-lg"></i>
+            </div>
+            <div>
+              <h3 class="text-lg font-semibold">Fraud Explanation</h3>
+              <p id="explain-txn-id" class="text-xs text-slate-500 font-mono"></p>
+            </div>
+          </div>
+          <button onclick="closeExplainModal()" class="text-slate-400 hover:text-white transition">
+            <i class="ph ph-x text-xl"></i>
+          </button>
+        </div>
+
+        <!-- Loading spinner -->
+        <div id="explain-loading" class="flex flex-col items-center py-12 gap-4">
+          <div style="
+            width: 44px; height: 44px;
+            border: 3px solid rgba(99,102,241,0.2);
+            border-top-color: #6366f1;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+          "></div>
+          <p class="text-slate-400 text-sm">Analysing transaction features&hellip;</p>
+        </div>
+
+        <!-- Error state -->
+        <div id="explain-error" class="hidden py-8 text-center">
+          <i class="ph ph-warning-octagon text-red-400 text-3xl mb-2"></i>
+          <p id="explain-error-msg" class="text-red-400 text-sm"></p>
+        </div>
+
+        <!-- Results -->
+        <div id="explain-results" class="hidden space-y-5">
+
+          <!-- Fraud Score Gauge -->
+          <div class="rounded-xl bg-slate-800/40 border border-white/5 p-4">
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-sm font-medium text-slate-300">Fraud Score vs Threshold</span>
+              <div class="flex gap-2">
+                <span id="explain-score-badge" class="text-xs px-2 py-0.5 rounded-full font-semibold"></span>
+              </div>
+            </div>
+            <div class="relative h-3 rounded-full bg-slate-700 overflow-hidden mb-1">
+              <div id="explain-gauge-fill" class="h-full rounded-full transition-all duration-700" style="width:0%"></div>
+              <div id="explain-threshold-marker" class="absolute top-0 h-full w-0.5 bg-white/60" style="left:0%"></div>
+            </div>
+            <div class="flex justify-between text-xs text-slate-500 mt-1">
+              <span>0</span>
+              <span id="explain-score-val"></span>
+              <span>1.0</span>
+            </div>
+          </div>
+
+          <!-- Feature Contribution Chart -->
+          <div class="rounded-xl bg-slate-800/40 border border-white/5 p-4">
+            <p class="text-sm font-medium text-slate-300 mb-3">Feature Contributions</p>
+            <div id="explain-chart" class="space-y-2"></div>
+          </div>
+
+          <!-- Rationale -->
+          <div class="rounded-xl bg-indigo-950/40 border border-indigo-500/20 p-4">
+            <div class="flex items-center gap-2 mb-2">
+              <i class="ph ph-chat-circle-text text-indigo-400"></i>
+              <p class="text-sm font-medium text-indigo-300">AI Rationale</p>
+            </div>
+            <p id="explain-rationale" class="text-sm text-slate-200 leading-relaxed"></p>
+            <span id="explain-cursor" class="inline-block w-0.5 h-4 bg-indigo-400 ml-0.5 align-middle" style="animation: blink 1s step-end infinite"></span>
+          </div>
+
+          <!-- Metadata footer -->
+          <div class="flex gap-3 flex-wrap">
+            <span id="explain-model-badge" class="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-slate-700/60 border border-white/5 text-slate-400 cursor-default" title="Model version used for scoring">
+              <i class="ph ph-robot"></i> <span></span>
+            </span>
+            <span id="explain-source-badge" class="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-slate-700/60 border border-white/5 text-slate-400 cursor-default" title="Threshold configuration source">
+              <i class="ph ph-file-text"></i> <span></span>
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <style>
+      @keyframes spin  { to { transform: rotate(360deg); } }
+      @keyframes blink { 50% { opacity: 0; } }
+    </style>
+
+    <!-- Action Modal -->
+    <div
+      id="action-modal"
+      class="fixed inset-0 bg-black/60 backdrop-blur-sm hidden z-50 flex items-center justify-center p-4"
+    >
+      <div class="glass-card rounded-2xl p-6 w-full max-w-md">
+        <div class="flex items-center justify-between mb-6">
+          <h3 class="text-xl font-semibold">Review Transaction</h3>
+          <button
+            onclick="closeModal()"
+            class="text-slate-400 hover:text-white"
+          >
+            <i class="ph ph-x text-xl"></i>
+          </button>
+        </div>
+        <div id="modal-content" class="space-y-4">
+          <!-- Filled dynamically -->
+        </div>
+      </div>
+    </div>
+
+    <!-- Deposit Funds Modal -->
+    <div
+      id="deposit-modal"
+      class="fixed inset-0 bg-black/60 backdrop-blur-sm hidden z-50 flex items-center justify-center p-4"
+    >
+      <div class="glass-card rounded-2xl p-6 w-full max-w-md">
+        <div class="flex items-center justify-between mb-6">
+          <h3 class="text-xl font-semibold">Deposit Funds</h3>
+          <button
+            onclick="closeDepositModal()"
+            class="text-slate-400 hover:text-white"
+          >
+            <i class="ph ph-x text-xl"></i>
+          </button>
+        </div>
+        <form onsubmit="depositFunds(event)" class="space-y-4">
+          <div class="p-3 rounded-lg bg-slate-800/50">
+            <p class="text-sm text-slate-400">Depositing to:</p>
+            <p id="deposit-user-id" class="font-medium text-white"></p>
+            <p id="deposit-user-email" class="text-xs text-slate-400"></p>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-slate-300 mb-1"
+              >Amount (INR)</label
+            >
+            <input
+              type="number"
+              id="deposit-amount"
+              required
+              min="1"
+              step="0.01"
+              placeholder="Enter amount to deposit"
+              class="w-full px-4 py-3 rounded-lg bg-slate-800 border border-slate-600 text-white placeholder-slate-500"
+            />
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-slate-300 mb-1"
+              >Reason</label
+            >
+            <input
+              type="text"
+              id="deposit-reason"
+              required
+              placeholder="e.g., Initial funding, Refund, etc."
+              class="w-full px-4 py-3 rounded-lg bg-slate-800 border border-slate-600 text-white placeholder-slate-500"
+            />
+          </div>
+          <button
+            type="submit"
+            class="w-full py-3 rounded-lg bg-emerald-600 text-white font-semibold hover:bg-emerald-700 transition"
+          >
+            <i class="ph ph-check-circle mr-2"></i> Confirm Deposit
+          </button>
+          <div
+            id="deposit-error"
+            class="hidden text-red-400 text-sm text-center"
+          ></div>
+          <div
+            id="deposit-success"
+            class="hidden text-emerald-400 text-sm text-center"
+          ></div>
+        </form>
+      </div>
+    </div>
+
+    <script>
+      let currentUser = null;
+
+      // Auth check
+      const token = localStorage.getItem("jatayu_token");
+      if (!token) {
+        window.location.href = "/login";
+      } else {
+        currentUser = JSON.parse(localStorage.getItem("jatayu_user") || "{}");
+        if (currentUser.user_type !== "ADMIN") {
+          window.location.href =
+            currentUser.user_type === "MERCHANT" ? "/merchant" : "/dashboard";
+        }
+        loadAll();
+      }
+
+      async function apiCall(endpoint, options = {}) {
+        const headers = {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+          ...options.headers,
+        };
+        const res = await fetch(endpoint, { ...options, headers });
+        if (res.status === 401) {
+          localStorage.clear();
+          document.cookie = "jatayu_token=; Max-Age=0; Path=/; SameSite=Lax";
+          window.location.href = "/login";
+        }
+        return res;
+      }
+
+      async function loadAll() {
+        loadStats();
+        loadHeld();
+      }
+
+      async function loadStats() {
+        try {
+          // Load metrics
+          const metricsRes = await apiCall("/admin/system/metrics");
+          const metrics = await metricsRes.json();
+
+          document.getElementById("stat-users").textContent =
+            metrics.total_users || 0;
+          document.getElementById("stat-latency").textContent =
+            `${metrics.pipeline_metrics?.avg_latency_ms?.toFixed(0) || 0}ms`;
+
+          // Load patterns for fraud rate
+          const patternsRes = await apiCall("/admin/fraud/patterns");
+          const patterns = await patternsRes.json();
+
+          document.getElementById("stat-fraud").textContent =
+            `${patterns.fraud_rate || 0}%`;
+
+          // Load held count
+          const heldRes = await apiCall("/admin/fraud/held");
+          const held = await heldRes.json();
+
+          document.getElementById("stat-held").textContent = held.count || 0;
+        } catch (err) {
+          console.error("Stats error:", err);
+        }
+      }
+
+      function showTab(tab) {
+        // Update tab styles
+        [
+          "held",
+          "recent",
+          "users",
+          "compliance",
+          "patterns",
+          "network",
+          "support",
+        ].forEach((t) => {
+          document.getElementById(`tab-${t}`).className =
+            t === tab
+              ? "pb-3 px-1 tab-btn active font-medium"
+              : "pb-3 px-1 tab-btn tab-inactive font-medium";
+          document
+            .getElementById(`content-${t}`)
+            .classList.toggle("hidden", t !== tab);
+        });
+
+        // Load content
+        if (tab === "held") loadHeld();
+        else if (tab === "recent") loadRecent();
+        else if (tab === "users") loadUsers();
+        else if (tab === "compliance") loadCompliance();
+        else if (tab === "patterns") loadPatterns();
+        else if (tab === "network") loadFraudNetwork();
+        else if (tab === "support") loadSupport();
+      }
+
+      async function loadHeld() {
+        try {
+          const res = await apiCall("/admin/fraud/held");
+          const data = await res.json();
+          const list = document.getElementById("held-list");
+
+          if (!data.transactions || data.transactions.length === 0) {
+            list.innerHTML =
+              '<p class="text-slate-400 text-center py-8">No held transactions</p>';
+            return;
+          }
+
+          list.innerHTML = data.transactions
+            .map(
+              (t) => `
+          <div class="flex items-center justify-between p-4 rounded-xl bg-slate-800/30 hover:bg-slate-800/50 transition">
+            <div class="flex items-center gap-4">
+              <div class="w-10 h-10 rounded-full bg-amber-600/30 flex items-center justify-center">
+                <i class="ph ph-pause-circle text-amber-400"></i>
+              </div>
+              <div>
+                <p class="font-medium">${t.sender_id} → ${t.receiver_id}</p>
+                <p class="text-xs text-slate-400">${new Date(t.initiated_at).toLocaleString()}</p>
+              </div>
+            </div>
+            <div class="flex items-center gap-4">
+              <div class="text-right">
+                <p class="font-semibold">₹${Number(t.amount).toLocaleString("en-IN")}</p>
+                <p class="text-xs risk-${(t.risk_level || "medium").toLowerCase()}">${t.risk_level || "MEDIUM"} - ${((t.fraud_score || 0) * 100).toFixed(0)}%</p>
+              </div>
+              <div class="flex gap-2">
+                <button onclick="approveTransaction('${t.transaction_id}')" class="px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-sm">
+                  <i class="ph ph-check mr-1"></i>Approve
+                </button>
+                <button onclick="blockTransaction('${t.transaction_id}')" class="px-3 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white text-sm">
+                  <i class="ph ph-x mr-1"></i>Block
+                </button>
+                <button onclick="openExplainModal('${t.transaction_id}')" class="px-3 py-2 rounded-lg bg-indigo-600/40 hover:bg-indigo-500/60 text-indigo-200 text-sm border border-indigo-500/40" title="AI Explanation">
+                  <i class="ph ph-brain mr-1"></i>Explain
+                </button>
+              </div>
+            </div>
+          </div>
+        `,
+            )
+            .join("");
+        } catch (err) {
+          document.getElementById("held-list").innerHTML =
+            '<p class="text-red-400 text-center py-8">Error loading held transactions</p>';
+        }
+      }
+
+      async function loadRecent() {
+        try {
+          const res = await apiCall("/admin/fraud/recent?limit=50");
+          const data = await res.json();
+          const list = document.getElementById("recent-list");
+
+          if (!data.transactions || data.transactions.length === 0) {
+            list.innerHTML =
+              '<p class="text-slate-400 text-center py-8">No recent transactions</p>';
+            return;
+          }
+
+          list.innerHTML = data.transactions
+            .map((t) => {
+              const statusClass =
+                t.status === "COMPLETED"
+                  ? "status-completed"
+                  : t.status === "HELD"
+                    ? "status-held"
+                    : "status-blocked";
+              return `
+            <div class="flex items-center justify-between p-4 rounded-xl bg-slate-800/30 hover:bg-slate-800/50 transition">
+              <div class="flex items-center gap-4">
+                <div class="w-10 h-10 rounded-full bg-slate-700 flex items-center justify-center">
+                  <i class="ph ph-arrow-right text-slate-400"></i>
+                </div>
+                <div>
+                  <p class="font-medium">${t.sender_id} → ${t.receiver_id}</p>
+                  <p class="text-xs text-slate-400">${new Date(t.initiated_at).toLocaleString()}</p>
+                </div>
+              </div>
+              <div class="flex items-center gap-6">
+                <div class="text-right">
+                  <p class="font-semibold">₹${Number(t.amount).toLocaleString("en-IN")}</p>
+                  <p class="text-xs ${statusClass}">${t.status}</p>
+                </div>
+                <div class="text-right min-w-[80px]">
+                  <p class="text-sm risk-${(t.risk_level || "low").toLowerCase()}">${((t.fraud_score || 0) * 100).toFixed(0)}%</p>
+                  <p class="text-xs text-slate-500">${t.pattern_type || "-"}</p>
+                </div>
+                <button onclick="openExplainModal('${t.transaction_id}')" class="px-3 py-2 rounded-lg bg-indigo-600/30 hover:bg-indigo-500/50 text-indigo-300 text-sm border border-indigo-500/30" title="AI Explanation">
+                  <i class="ph ph-brain"></i>
+                </button>
+              </div>
+            </div>
+          `;
+            })
+            .join("");
+        } catch (err) {
+          document.getElementById("recent-list").innerHTML =
+            '<p class="text-red-400 text-center py-8">Error loading transactions</p>';
+        }
+      }
+
+      async function loadUsers() {
+        try {
+          const filter = document.getElementById("user-type-filter").value;
+          const url = filter
+            ? `/admin/users?user_type=${filter}`
+            : "/admin/users";
+          const res = await apiCall(url);
+          const data = await res.json();
+          const list = document.getElementById("users-list");
+
+          if (!data.users || data.users.length === 0) {
+            list.innerHTML =
+              '<p class="text-slate-400 text-center py-8">No users found</p>';
+            return;
+          }
+
+          list.innerHTML = data.users
+            .map((u) => {
+              const accountStatus = String(
+                u.account_status || "",
+              ).toUpperCase();
+              const typeColor =
+                u.user_type === "ADMIN"
+                  ? "bg-red-600"
+                  : u.user_type === "MERCHANT"
+                    ? "bg-purple-600"
+                    : "bg-blue-600";
+              const statusColor =
+                accountStatus === "ACTIVE"
+                  ? "text-emerald-400"
+                  : accountStatus === "SUSPENDED"
+                    ? "text-amber-400"
+                    : "text-red-400";
+              return `
+            <div class="flex items-center justify-between p-4 rounded-xl bg-slate-800/30 hover:bg-slate-800/50 transition">
+              <div class="flex items-center gap-4">
+                <div class="w-10 h-10 rounded-full ${typeColor} flex items-center justify-center text-white font-bold">
+                  ${u.user_id[0]}
+                </div>
+                <div>
+                  <p class="font-medium">${u.user_id}</p>
+                  <p class="text-sm text-slate-400">${u.email}</p>
+                </div>
+              </div>
+              <div class="flex items-center gap-2">
+                <div class="text-right">
+                  <span class="text-xs px-2 py-1 rounded ${typeColor}">${u.user_type}</span>
+                  <p class="text-xs ${statusColor} mt-1 font-semibold">${accountStatus || "UNKNOWN"}</p>
+                </div>
+                ${
+                  u.user_type !== "ADMIN"
+                    ? `
+                  <button onclick="showDepositModal('${u.user_id}', '${u.email}')" class="px-3 py-2 rounded-lg bg-emerald-600/30 text-emerald-400 text-xs hover:bg-emerald-600/50 flex items-center gap-1">
+                    <i class="ph ph-plus-circle"></i> Add Funds
+                  </button>
+                  <select onchange="updateUserStatus('${u.user_id}', this, '${accountStatus}')" class="px-3 py-2 rounded-lg border text-sm font-medium ${accountStatus === "ACTIVE" ? "bg-emerald-900/40 border-emerald-700 text-emerald-300" : accountStatus === "SUSPENDED" ? "bg-amber-900/40 border-amber-700 text-amber-300" : "bg-red-900/40 border-red-700 text-red-300"}">
+                    <option value="ACTIVE" ${accountStatus === "ACTIVE" ? "selected" : ""}>✓ Active</option>
+                    <option value="SUSPENDED" ${accountStatus === "SUSPENDED" ? "selected" : ""}>⚠ Suspended</option>
+                    <option value="BLOCKED" ${accountStatus === "BLOCKED" ? "selected" : ""}>✕ Blocked</option>
+                  </select>
+                `
+                    : ""
+                }
+              </div>
+            </div>
+          `;
+            })
+            .join("");
+        } catch (err) {
+          document.getElementById("users-list").innerHTML =
+            '<p class="text-red-400 text-center py-8">Error loading users</p>';
+        }
+      }
+
+      async function loadCompliance(type = null) {
+        try {
+          const url = type
+            ? `/admin/compliance/${type.toLowerCase()}`
+            : "/admin/compliance/all";
+          const res = await apiCall(url);
+          const data = await res.json();
+          const list = document.getElementById("compliance-list");
+
+          if (!data.reports || data.reports.length === 0) {
+            list.innerHTML =
+              '<p class="text-slate-400 text-center py-8">No compliance reports</p>';
+            return;
+          }
+
+          list.innerHTML = data.reports
+            .map((r) => {
+              const typeColor =
+                r.report_type === "STR" ? "bg-red-600" : "bg-amber-600";
+              return `
+            <div class="flex items-center justify-between p-4 rounded-xl bg-slate-800/30 hover:bg-slate-800/50 transition">
+              <div class="flex items-center gap-4">
+                <span class="px-3 py-1 rounded ${typeColor} text-white text-sm font-bold">${r.report_type}</span>
+                <div>
+                  <p class="font-medium">${r.trigger_reason}</p>
+                  <p class="text-xs text-slate-400">User: ${r.user_id} | Txn: ${r.transaction_id || "N/A"}</p>
+                </div>
+              </div>
+              <div class="text-right">
+                <p class="font-semibold">₹${Number(r.amount || 0).toLocaleString("en-IN")}</p>
+                <p class="text-xs text-slate-400">${new Date(r.created_at).toLocaleString()}</p>
+              </div>
+            </div>
+          `;
+            })
+            .join("");
+        } catch (err) {
+          document.getElementById("compliance-list").innerHTML =
+            '<p class="text-red-400 text-center py-8">Error loading reports</p>';
+        }
+      }
+
+      async function loadPatterns() {
+        try {
+          const res = await apiCall("/admin/fraud/patterns");
+          const data = await res.json();
+          const content = document.getElementById("patterns-content");
+
+          content.innerHTML = `
+          <div class="space-y-4">
+            <h3 class="font-semibold text-slate-300">Pattern Distribution</h3>
+            ${Object.entries(data.pattern_distribution || {})
+              .map(
+                ([k, v]) => `
+              <div class="flex justify-between items-center p-3 bg-slate-800/30 rounded-lg">
+                <span class="text-slate-400">${k}</span>
+                <span class="font-semibold">${v}</span>
+              </div>
+            `,
+              )
+              .join("")}
+          </div>
+          <div class="space-y-4">
+            <h3 class="font-semibold text-slate-300">Risk Distribution</h3>
+            ${Object.entries(data.risk_distribution || {})
+              .map(
+                ([k, v]) => `
+              <div class="flex justify-between items-center p-3 bg-slate-800/30 rounded-lg">
+                <span class="risk-${k.toLowerCase()}">${k}</span>
+                <span class="font-semibold">${v}</span>
+              </div>
+            `,
+              )
+              .join("")}
+          </div>
+          <div class="space-y-4">
+            <h3 class="font-semibold text-slate-300">Action Distribution</h3>
+            ${Object.entries(data.action_distribution || {})
+              .map(
+                ([k, v]) => `
+              <div class="flex justify-between items-center p-3 bg-slate-800/30 rounded-lg">
+                <span class="text-slate-400">${k}</span>
+                <span class="font-semibold">${v}</span>
+              </div>
+            `,
+              )
+              .join("")}
+          </div>
+          <div class="space-y-4">
+            <h3 class="font-semibold text-slate-300">Summary</h3>
+            <div class="p-4 bg-slate-800/30 rounded-lg text-center">
+              <p class="text-4xl font-bold text-red-400">${data.fraud_rate || 0}%</p>
+              <p class="text-slate-400 text-sm">Fraud Rate (Blocked / Total)</p>
+            </div>
+            <div class="p-4 bg-slate-800/30 rounded-lg text-center">
+              <p class="text-4xl font-bold">${data.total_transactions || 0}</p>
+              <p class="text-slate-400 text-sm">Total Transactions Analyzed</p>
+            </div>
+          </div>
+        `;
+        } catch (err) {
+          document.getElementById("patterns-content").innerHTML =
+            '<p class="text-red-400 text-center py-8">Error loading patterns</p>';
+        }
+      }
+
+      async function approveTransaction(txnId) {
+        if (
+          !confirm(
+            "Approve this transaction? Funds will be released to the receiver.",
+          )
+        )
+          return;
+
+        try {
+          const res = await apiCall(`/admin/fraud/${txnId}/approve`, {
+            method: "POST",
+            body: JSON.stringify({
+              action: "APPROVE",
+              reason: "Admin approved",
+            }),
+          });
+
+          if (res.ok) {
+            alert("Transaction approved successfully!");
+            loadHeld();
+            loadStats();
+          } else {
+            const err = await res.json();
+            alert("Error: " + (err.detail || "Failed to approve"));
+          }
+        } catch (err) {
+          alert("Error approving transaction");
+        }
+      }
+
+      async function blockTransaction(txnId) {
+        const reason = prompt("Enter reason for blocking:");
+        if (!reason) return;
+
+        try {
+          const res = await apiCall(`/admin/fraud/${txnId}/block`, {
+            method: "POST",
+            body: JSON.stringify({ action: "BLOCK", reason: reason }),
+          });
+
+          if (res.ok) {
+            alert("Transaction blocked and reversed!");
+            loadHeld();
+            loadStats();
+          } else {
+            const err = await res.json();
+            alert("Error: " + (err.detail || "Failed to block"));
+          }
+        } catch (err) {
+          alert("Error blocking transaction");
+        }
+      }
+
+      async function updateUserStatus(userId, selectEl, currentStatus) {
+        const status = String(
+          typeof selectEl === "string" ? selectEl : selectEl.value,
+        ).toUpperCase();
+        const normalizedCurrentStatus = String(
+          currentStatus || "",
+        ).toUpperCase();
+        if (!status) return;
+        // No-op if selecting the same status
+        if (normalizedCurrentStatus && status === normalizedCurrentStatus)
+          return;
+        const actionLabel =
+          status === "ACTIVE"
+            ? "Activate"
+            : status === "SUSPENDED"
+              ? "Suspend"
+              : "Block";
+        if (
+          !confirm(
+            `${actionLabel} user ${userId}?\n\nThis will change their account status to ${status}.`,
+          )
+        ) {
+          // Revert select to current status
+          if (selectEl && selectEl.value !== undefined)
+            selectEl.value = normalizedCurrentStatus || "";
+          return;
+        }
+
+        try {
+          const res = await apiCall(`/admin/users/${userId}/status`, {
+            method: "PUT",
+            body: JSON.stringify({ account_status: status }),
+          });
+
+          if (res.ok) {
+            loadUsers(); // Refresh list (will re-render with new status pre-selected)
+          } else {
+            const err = await res.json();
+            alert("Error: " + (err.detail || "Failed to update"));
+            if (selectEl && selectEl.value !== undefined)
+              selectEl.value = normalizedCurrentStatus || "";
+          }
+        } catch (err) {
+          alert("Error updating user status");
+          if (selectEl && selectEl.value !== undefined)
+            selectEl.value = normalizedCurrentStatus || "";
+        }
+      }
+
+      function closeModal() {
+        document.getElementById("action-modal").classList.add("hidden");
+      }
+
+      function logout() {
+        apiCall("/auth/logout", { method: "POST" }).finally(() => {
+          localStorage.clear();
+          document.cookie = "jatayu_token=; Max-Age=0; Path=/; SameSite=Lax";
+          window.location.href = "/login";
+        });
+      }
+
+      // ═══════════════════════════════════════════════════════════════════════════
+      // D3.JS FRAUD NETWORK VISUALIZATION
+      // ═══════════════════════════════════════════════════════════════════════════
+
+      let networkData = { nodes: [], links: [] };
+      let simulation = null;
+
+      async function loadFraudNetwork() {
+        try {
+          const res = await apiCall("/admin/fraud/recent?limit=100");
+          const data = await res.json();
+
+          if (!data.transactions || data.transactions.length === 0) {
+            document.getElementById("fraud-network").innerHTML =
+              '<p class="text-slate-400 text-center py-20">No transaction data available</p>';
+            document.getElementById("flagged-list").innerHTML =
+              '<p class="text-slate-400 text-center py-8">No flagged transactions</p>';
+            return;
+          }
+
+          // Build network data
+          buildNetworkData(data.transactions);
+          renderFraudNetwork();
+          renderFlaggedList(data.transactions);
+        } catch (err) {
+          console.error("Network load error:", err);
+          document.getElementById("fraud-network").innerHTML =
+            '<p class="text-red-400 text-center py-20">Error loading network data</p>';
+        }
+      }
+
+      function buildNetworkData(transactions) {
+        const nodesMap = new Map();
+        const links = [];
+
+        transactions.forEach((txn) => {
+          // Add sender node
+          if (!nodesMap.has(txn.sender_id)) {
+            nodesMap.set(txn.sender_id, {
+              id: txn.sender_id,
+              type: txn.sender_id.startsWith("M") ? "merchant" : "customer",
+              riskLevel: "LOW",
+              flagged: false,
+            });
+          }
+
+          // Add receiver node
+          if (!nodesMap.has(txn.receiver_id)) {
+            nodesMap.set(txn.receiver_id, {
+              id: txn.receiver_id,
+              type: txn.receiver_id.startsWith("M") ? "merchant" : "customer",
+              riskLevel: "LOW",
+              flagged: false,
+            });
+          }
+
+          // Update node risk if this transaction is flagged
+          const isFlagged =
+            txn.status === "HELD" ||
+            txn.status === "BLOCKED" ||
+            txn.risk_level === "CRITICAL" ||
+            txn.risk_level === "HIGH";
+
+          if (isFlagged) {
+            const senderNode = nodesMap.get(txn.sender_id);
+            senderNode.flagged = true;
+            if (txn.risk_level === "CRITICAL" || txn.status === "BLOCKED") {
+              senderNode.riskLevel = "CRITICAL";
+            } else if (
+              txn.risk_level === "HIGH" &&
+              senderNode.riskLevel !== "CRITICAL"
+            ) {
+              senderNode.riskLevel = "HIGH";
+            } else if (
+              txn.status === "HELD" &&
+              senderNode.riskLevel === "LOW"
+            ) {
+              senderNode.riskLevel = "HELD";
+            }
+          }
+
+          // Add link
+          links.push({
+            source: txn.sender_id,
+            target: txn.receiver_id,
+            amount: txn.amount,
+            fraudScore: txn.fraud_score || 0,
+            riskLevel: txn.risk_level || "LOW",
+            status: txn.status,
+            pattern: txn.pattern_type,
+            explanation: txn.explanation,
+            transactionId: txn.transaction_id,
+            isFlagged: isFlagged,
+          });
+        });
+
+        networkData = {
+          nodes: Array.from(nodesMap.values()),
+          links: links,
+        };
+      }
+
+      function renderFraudNetwork() {
+        const container = document.getElementById("fraud-network");
+        container.innerHTML = "";
+
+        const width = container.clientWidth;
+        const height = 600;
+
+        // Calculate stats
+        const totalNodes = networkData.nodes.length;
+        const flaggedNodes = networkData.nodes.filter((n) => n.flagged).length;
+        const totalLinks = networkData.links.length;
+        const flaggedLinks = networkData.links.filter(
+          (l) => l.isFlagged,
+        ).length;
+
+        // Add controls
+        const controlsDiv = document.createElement("div");
+        controlsDiv.className = "controls";
+        controlsDiv.innerHTML = `
+          <button onclick="toggleLabels()" id="btn-labels" class="active" title="Toggle Labels">
+            <i class="ph ph-text-aa"></i> Labels
+          </button>
+          <button onclick="filterFlagged()" id="btn-filter" title="Show Flagged Only">
+            <i class="ph ph-funnel"></i> Flagged
+          </button>
+          <button onclick="resetNetwork()" title="Reset View">
+            <i class="ph ph-arrows-clockwise"></i> Reset
+          </button>
+        `;
+        container.appendChild(controlsDiv);
+
+        // Add zoom controls
+        const zoomDiv = document.createElement("div");
+        zoomDiv.className = "zoom-controls";
+        zoomDiv.innerHTML = `
+          <button onclick="zoomIn()" title="Zoom In">+</button>
+          <button onclick="zoomOut()" title="Zoom Out">−</button>
+          <button onclick="zoomReset()" title="Reset Zoom">⟲</button>
+        `;
+        container.appendChild(zoomDiv);
+
+        // Add stats overlay
+        const statsDiv = document.createElement("div");
+        statsDiv.className = "stats-overlay";
+        statsDiv.innerHTML = `
+          <span><strong>${totalNodes}</strong> accounts</span> ·
+          <span><strong>${totalLinks}</strong> transactions</span> ·
+          <span class="text-red-400"><strong>${flaggedLinks}</strong> flagged</span>
+        `;
+        container.appendChild(statsDiv);
+
+        // Create SVG with zoom support
+        const svg = d3
+          .select("#fraud-network")
+          .append("svg")
+          .attr("width", width)
+          .attr("height", height);
+
+        // Create a group for zoom/pan
+        const g = svg.append("g");
+
+        // Setup zoom behavior
+        const zoom = d3
+          .zoom()
+          .scaleExtent([0.2, 4])
+          .on("zoom", (event) => {
+            g.attr("transform", event.transform);
+          });
+
+        svg.call(zoom);
+
+        // Store zoom for external controls
+        window.networkZoom = zoom;
+        window.networkSvg = svg;
+        window.networkG = g;
+
+        // Create tooltip
+        d3.selectAll(".network-tooltip").remove();
+        const tooltip = d3
+          .select("body")
+          .append("div")
+          .attr("class", "tooltip network-tooltip")
+          .style("opacity", 0);
+
+        // Better force simulation with improved layout
+        const linkDistance = Math.max(
+          80,
+          Math.min(150, 800 / Math.sqrt(totalNodes)),
+        );
+        const chargeStrength = Math.max(
+          -400,
+          Math.min(-150, -3000 / totalNodes),
+        );
+
+        simulation = d3
+          .forceSimulation(networkData.nodes)
+          .force(
+            "link",
+            d3
+              .forceLink(networkData.links)
+              .id((d) => d.id)
+              .distance(linkDistance)
+              .strength(0.5),
+          )
+          .force("charge", d3.forceManyBody().strength(chargeStrength))
+          .force("center", d3.forceCenter(width / 2, height / 2))
+          .force("collision", d3.forceCollide().radius(40))
+          .force("x", d3.forceX(width / 2).strength(0.05))
+          .force("y", d3.forceY(height / 2).strength(0.05));
+
+        // Add arrow markers for directed edges
+        svg
+          .append("defs")
+          .selectAll("marker")
+          .data(["arrow", "arrow-fraud"])
+          .enter()
+          .append("marker")
+          .attr("id", (d) => d)
+          .attr("viewBox", "0 -5 10 10")
+          .attr("refX", 20)
+          .attr("refY", 0)
+          .attr("markerWidth", 6)
+          .attr("markerHeight", 6)
+          .attr("orient", "auto")
+          .append("path")
+          .attr("fill", (d) =>
+            d === "arrow-fraud" ? "#ef4444" : "rgba(99, 102, 241, 0.6)",
+          )
+          .attr("d", "M0,-5L10,0L0,5");
+
+        // Draw links (edges)
+        const link = g
+          .append("g")
+          .attr("class", "links")
+          .selectAll("line")
+          .data(networkData.links)
+          .enter()
+          .append("line")
+          .attr("class", (d) => (d.isFlagged ? "link-fraud" : "link-normal"))
+          .attr("marker-end", (d) =>
+            d.isFlagged ? "url(#arrow-fraud)" : "url(#arrow)",
+          )
+          .on("mouseover", function (event, d) {
+            d3.select(this).classed("link-highlight", true);
+            tooltip.transition().duration(150).style("opacity", 1);
+            tooltip
+              .html(
+                `
+              <div class="font-semibold text-white mb-2 text-base">${d.source.id || d.source} → ${d.target.id || d.target}</div>
+              <div class="grid grid-cols-2 gap-2 text-xs mb-2">
+                <div><span class="text-slate-400">Amount:</span> <span class="text-emerald-400 font-bold">₹${Number(d.amount || 0).toLocaleString("en-IN")}</span></div>
+                <div><span class="text-slate-400">Status:</span> <span class="${d.status === "BLOCKED" ? "text-red-400 font-bold" : d.status === "HELD" ? "text-amber-400 font-bold" : "text-emerald-400"}">${d.status || "COMPLETED"}</span></div>
+                <div><span class="text-slate-400">Risk:</span> <span class="risk-${(d.riskLevel || "low").toLowerCase()}">${d.riskLevel || "LOW"}</span></div>
+                <div><span class="text-slate-400">Score:</span> <span class="${(d.fraudScore || 0) > 0.5 ? "text-red-400 font-bold" : "text-slate-300"}">${((d.fraudScore || 0) * 100).toFixed(0)}%</span></div>
+              </div>
+              ${d.pattern && d.pattern !== "NONE" ? `<div class="text-xs mb-2 px-2 py-1 bg-amber-500/20 rounded"><span class="text-amber-400 font-semibold">Pattern:</span> ${d.pattern}</div>` : ""}
+              ${d.explanation ? `<div class="text-xs text-slate-300 border-t border-slate-700 pt-2 mt-2">${d.explanation}</div>` : ""}
+            `,
+              )
+              .style("left", event.pageX + 15 + "px")
+              .style("top", event.pageY - 10 + "px");
+          })
+          .on("mouseout", function (event, d) {
+            d3.select(this).classed("link-highlight", false);
+            tooltip.transition().duration(250).style("opacity", 0);
+          });
+
+        // Store link selection globally
+        window.networkLinks = link;
+
+        // Draw nodes
+        const node = g
+          .append("g")
+          .attr("class", "nodes")
+          .selectAll("g")
+          .data(networkData.nodes)
+          .enter()
+          .append("g")
+          .attr("class", "node-group")
+          .call(
+            d3
+              .drag()
+              .on("start", dragstarted)
+              .on("drag", dragged)
+              .on("end", dragended),
+          );
+
+        // Node circles
+        node
+          .append("circle")
+          .attr("r", (d) => (d.flagged ? 14 : 10))
+          .attr("class", (d) => {
+            let cls = "";
+            if (d.riskLevel === "CRITICAL") cls = "node-critical";
+            else if (d.riskLevel === "HIGH") cls = "node-high";
+            else if (d.riskLevel === "HELD") cls = "node-held";
+            else if (d.type === "merchant") cls = "node-merchant";
+            else cls = "node-normal";
+            return cls;
+          })
+          .attr("stroke", (d) => (d.flagged ? "#fff" : "rgba(255,255,255,0.3)"))
+          .attr("stroke-width", (d) => (d.flagged ? 2.5 : 1))
+          .on("mouseover", function (event, d) {
+            // Highlight connected nodes and links
+            const connectedNodeIds = new Set([d.id]);
+            networkData.links.forEach((l) => {
+              const srcId = l.source.id || l.source;
+              const tgtId = l.target.id || l.target;
+              if (srcId === d.id) connectedNodeIds.add(tgtId);
+              if (tgtId === d.id) connectedNodeIds.add(srcId);
+            });
+
+            // Dim non-connected elements
+            d3.selectAll(".node-group").classed(
+              "node-dimmed",
+              (n) => !connectedNodeIds.has(n.id),
+            );
+            d3.selectAll(".links line").classed("link-dimmed", (l) => {
+              const srcId = l.source.id || l.source;
+              const tgtId = l.target.id || l.target;
+              return srcId !== d.id && tgtId !== d.id;
+            });
+
+            d3.select(this).classed("node-highlight", true);
+
+            const relatedTxns = networkData.links.filter(
+              (l) =>
+                (l.source.id || l.source) === d.id ||
+                (l.target.id || l.target) === d.id,
+            );
+            const flaggedCount = relatedTxns.filter((t) => t.isFlagged).length;
+            const totalAmount = relatedTxns.reduce(
+              (sum, t) => sum + (t.amount || 0),
+              0,
+            );
+
+            tooltip.transition().duration(200).style("opacity", 1);
+            tooltip
+              .html(
+                `
+            <div class="font-semibold text-white mb-2 text-base">${d.id}</div>
+            <div class="flex items-center gap-2 mb-2">
+              <span class="px-2 py-1 rounded text-xs ${d.type === "merchant" ? "bg-emerald-500/20 text-emerald-400" : "bg-indigo-500/20 text-indigo-400"}">${d.type.toUpperCase()}</span>
+              <span class="px-2 py-1 rounded text-xs risk-${d.riskLevel.toLowerCase()} bg-opacity-20">${d.riskLevel} RISK</span>
+            </div>
+            <div class="text-xs text-slate-300 grid grid-cols-2 gap-2">
+              <div>Transactions: <strong>${relatedTxns.length}</strong></div>
+              <div>Flagged: <strong class="text-red-400">${flaggedCount}</strong></div>
+              <div class="col-span-2">Total Volume: <strong class="text-emerald-400">₹${totalAmount.toLocaleString("en-IN")}</strong></div>
+            </div>
+            <div class="text-xs text-indigo-400 mt-2 border-t border-slate-700 pt-2">
+              <i class="ph ph-hand-pointing"></i> Drag to move · Click for details
+            </div>
+          `,
+              )
+              .style("left", event.pageX + 15 + "px")
+              .style("top", event.pageY - 10 + "px");
+          })
+          .on("mouseout", function () {
+            // Remove highlighting
+            d3.selectAll(".node-group").classed("node-dimmed", false);
+            d3.selectAll(".links line").classed("link-dimmed", false);
+            d3.select(this).classed("node-highlight", false);
+            tooltip.transition().duration(500).style("opacity", 0);
+          })
+          .on("click", function (event, d) {
+            event.stopPropagation();
+            showTransactionNetwork(d.id, null);
+          });
+
+        // Store node selection globally
+        window.networkNodes = node;
+
+        // Add labels - positioned to avoid overlap
+        const labels = g
+          .append("g")
+          .attr("class", "labels")
+          .selectAll("text")
+          .data(networkData.nodes)
+          .enter()
+          .append("text")
+          .attr("class", "node-label")
+          .attr("dx", 16)
+          .attr("dy", 4)
+          .text((d) => (d.id.length > 12 ? d.id.substring(0, 10) + "…" : d.id));
+
+        // Store labels globally for toggle
+        window.networkLabels = labels;
+
+        // Update positions on tick with boundary constraints
+        simulation.on("tick", () => {
+          link
+            .attr("x1", (d) => d.source.x)
+            .attr("y1", (d) => d.source.y)
+            .attr("x2", (d) => d.target.x)
+            .attr("y2", (d) => d.target.y);
+
+          node.attr("transform", (d) => {
+            d.x = Math.max(20, Math.min(width - 20, d.x));
+            d.y = Math.max(20, Math.min(height - 20, d.y));
+            return `translate(${d.x}, ${d.y})`;
+          });
+
+          labels.attr("x", (d) => d.x).attr("y", (d) => d.y);
+        });
+
+        // Initial fit-to-view after simulation settles
+        simulation.on("end", () => {
+          fitToView();
+        });
+      }
+
+      // Control functions
+      let labelsVisible = true;
+      let showFlaggedOnly = false;
+
+      function toggleLabels() {
+        labelsVisible = !labelsVisible;
+        document
+          .getElementById("btn-labels")
+          .classList.toggle("active", labelsVisible);
+        if (window.networkLabels) {
+          window.networkLabels.style(
+            "display",
+            labelsVisible ? "block" : "none",
+          );
+        }
+      }
+
+      function filterFlagged() {
+        showFlaggedOnly = !showFlaggedOnly;
+        document
+          .getElementById("btn-filter")
+          .classList.toggle("active", showFlaggedOnly);
+        if (window.networkNodes && window.networkLinks) {
+          if (showFlaggedOnly) {
+            window.networkNodes.style("opacity", (d) => (d.flagged ? 1 : 0.15));
+            window.networkLinks.style("opacity", (d) =>
+              d.isFlagged ? 1 : 0.05,
+            );
+          } else {
+            window.networkNodes.style("opacity", 1);
+            window.networkLinks.style("opacity", 1);
+          }
+        }
+      }
+
+      function resetNetwork() {
+        // Rebuild the network
+        renderFraudNetwork();
+      }
+
+      function zoomIn() {
+        if (window.networkSvg && window.networkZoom) {
+          window.networkSvg
+            .transition()
+            .duration(300)
+            .call(window.networkZoom.scaleBy, 1.3);
+        }
+      }
+
+      function zoomOut() {
+        if (window.networkSvg && window.networkZoom) {
+          window.networkSvg
+            .transition()
+            .duration(300)
+            .call(window.networkZoom.scaleBy, 0.7);
+        }
+      }
+
+      function zoomReset() {
+        if (window.networkSvg && window.networkZoom) {
+          window.networkSvg
+            .transition()
+            .duration(500)
+            .call(window.networkZoom.transform, d3.zoomIdentity);
+        }
+      }
+
+      function fitToView() {
+        if (!window.networkG || !window.networkSvg || !window.networkZoom)
+          return;
+
+        const bounds = window.networkG.node().getBBox();
+        const container = document.getElementById("fraud-network");
+        const width = container.clientWidth;
+        const height = 600;
+
+        const scale = Math.min(
+          (0.9 * width) / bounds.width,
+          (0.9 * height) / bounds.height,
+          1.5,
+        );
+
+        const tx = (width - bounds.width * scale) / 2 - bounds.x * scale;
+        const ty = (height - bounds.height * scale) / 2 - bounds.y * scale;
+
+        window.networkSvg
+          .transition()
+          .duration(750)
+          .call(
+            window.networkZoom.transform,
+            d3.zoomIdentity.translate(tx, ty).scale(scale),
+          );
+      }
+
+      function dragstarted(event) {
+        if (!event.active) simulation.alphaTarget(0.3).restart();
+        event.subject.fx = event.subject.x;
+        event.subject.fy = event.subject.y;
+      }
+
+      function dragged(event) {
+        event.subject.fx = event.x;
+        event.subject.fy = event.y;
+      }
+
+      function dragended(event) {
+        if (!event.active) simulation.alphaTarget(0);
+        event.subject.fx = null;
+        event.subject.fy = null;
+      }
+
+      function renderFlaggedList(transactions) {
+        // Filter flagged transactions (HELD, BLOCKED, HIGH, CRITICAL)
+        const flagged = transactions.filter(
+          (t) =>
+            t.status === "HELD" ||
+            t.status === "BLOCKED" ||
+            t.risk_level === "CRITICAL" ||
+            t.risk_level === "HIGH",
+        );
+
+        const list = document.getElementById("flagged-list");
+
+        if (flagged.length === 0) {
+          list.innerHTML =
+            '<p class="text-slate-400 text-center py-8">No flagged transactions</p>';
+          return;
+        }
+
+        list.innerHTML = flagged
+          .map((t) => {
+            const statusColor =
+              t.status === "BLOCKED"
+                ? "red"
+                : t.status === "HELD"
+                  ? "amber"
+                  : t.risk_level === "CRITICAL"
+                    ? "red"
+                    : "orange";
+            const riskClass = `risk-${(t.risk_level || "medium").toLowerCase()}`;
+
+            return `
+          <div class="p-3 rounded-lg bg-slate-800/50 border-l-4 border-${statusColor}-500 cursor-pointer hover:bg-slate-700/50 transition" onclick="showTransactionNetwork('${t.sender_id}', '${t.transaction_id}')">
+            <div class="flex justify-between items-start mb-2">
+              <span class="font-medium text-sm">${t.sender_id} → ${t.receiver_id}</span>
+              <span class="text-xs px-2 py-1 rounded bg-${statusColor}-600/30 text-${statusColor}-400">${t.status}</span>
+            </div>
+            <div class="text-xs text-slate-400 mb-2">
+              <span class="font-semibold">₹${Number(t.amount).toLocaleString("en-IN")}</span> ·
+              <span class="${riskClass}">${t.risk_level || "MEDIUM"}</span> ·
+              Score: ${((t.fraud_score || 0) * 100).toFixed(0)}%
+            </div>
+            ${
+              t.pattern_type && t.pattern_type !== "NONE"
+                ? `
+              <div class="text-xs mb-2">
+                <span class="text-amber-400">Pattern:</span> ${t.pattern_type}
+              </div>
+            `
+                : ""
+            }
+            ${
+              t.explanation
+                ? `
+              <div class="text-xs text-slate-300 bg-slate-900/50 p-2 rounded mt-2">
+                <span class="text-red-400 font-semibold">Reason:</span> ${t.explanation}
+              </div>
+            `
+                : ""
+            }
+            <div class="text-xs text-indigo-400 mt-2 flex items-center gap-1">
+              <i class="ph ph-graph"></i> Click to view fraud network for this transaction
+            </div>
+          </div>
+        `;
+          })
+          .join("");
+      }
+
+      // Show transaction-specific network — fetches ALL recent transactions and builds
+      // a subgraph for the specific fraud cluster (all senders → same collector).
+      async function showTransactionNetwork(userId, txnId) {
+        const container = document.getElementById("fraud-network");
+        container.innerHTML =
+          '<p class="text-slate-400 text-center py-20"><i class="ph ph-spinner animate-spin mr-2"></i>Loading network for ' +
+          userId +
+          "...</p>";
+
+        try {
+          // Fetch wide history to capture the full mule network
+          const res = await apiCall("/admin/fraud/recent?limit=200");
+          const data = await res.json();
+          const allTxns = data.transactions || [];
+
+          // Find the target transaction to identify the collector
+          const targetTxn =
+            allTxns.find((t) => t.transaction_id === txnId) ||
+            allTxns.find((t) => t.sender_id === userId);
+
+          let networkTxns;
+          if (targetTxn && targetTxn.receiver_id) {
+            // Build the full mule cluster: ALL senders that sent to the same collector
+            const collectorId = targetTxn.receiver_id;
+            const inbound = allTxns.filter(
+              (t) => t.receiver_id === collectorId,
+            );
+            const outbound = allTxns.filter((t) => t.sender_id === collectorId);
+            networkTxns = [...inbound, ...outbound];
+          } else {
+            // Fallback: show all transactions touching this user
+            networkTxns = allTxns.filter(
+              (t) => t.sender_id === userId || t.receiver_id === userId,
+            );
+          }
+
+          if (!networkTxns.length) {
+            container.innerHTML =
+              '<p class="text-slate-400 text-center py-20">No network data found for this transaction</p>';
+            return;
+          }
+
+          buildNetworkData(networkTxns);
+          renderFraudNetwork();
+
+          // Highlight the selected transaction edge after a short delay (allow D3 to render)
+          setTimeout(() => {
+            document
+              .querySelectorAll("#fraud-network svg line")
+              .forEach((line) => {
+                const linkData = d3.select(line).datum();
+                if (linkData?.transactionId === txnId) {
+                  d3.select(line)
+                    .attr("stroke", "#fbbf24")
+                    .attr("stroke-width", 4);
+                }
+              });
+          }, 600);
+        } catch (err) {
+          console.error("Error loading network:", err);
+          container.innerHTML =
+            '<p class="text-red-400 text-center py-20">Error loading network</p>';
+        }
+      }
+
+      // Deposit modal functions
+      let currentDepositUserId = "";
+
+      function showDepositModal(userId, email) {
+        currentDepositUserId = userId;
+        document.getElementById("deposit-user-id").textContent = userId;
+        document.getElementById("deposit-user-email").textContent = email;
+        document.getElementById("deposit-amount").value = "";
+        document.getElementById("deposit-reason").value = "";
+        document.getElementById("deposit-error").classList.add("hidden");
+        document.getElementById("deposit-success").classList.add("hidden");
+        document.getElementById("deposit-modal").classList.remove("hidden");
+      }
+
+      function closeDepositModal() {
+        document.getElementById("deposit-modal").classList.add("hidden");
+        currentDepositUserId = "";
+      }
+
+      async function depositFunds(event) {
+        event.preventDefault();
+        const amount = parseFloat(
+          document.getElementById("deposit-amount").value,
+        );
+        const reason = document.getElementById("deposit-reason").value.trim();
+        const errorDiv = document.getElementById("deposit-error");
+        const successDiv = document.getElementById("deposit-success");
+
+        errorDiv.classList.add("hidden");
+        successDiv.classList.add("hidden");
+
+        if (!currentDepositUserId || amount <= 0 || !reason) {
+          errorDiv.textContent = "Please provide valid amount and reason";
+          errorDiv.classList.remove("hidden");
+          return;
+        }
+
+        try {
+          const res = await apiCall("/admin/users/deposit", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              user_id: currentDepositUserId,
+              amount: amount,
+              reason: reason,
+            }),
+          });
+
+          if (!res.ok) {
+            const errData = await res.json();
+            throw new Error(errData.detail || "Deposit failed");
+          }
+
+          const data = await res.json();
+          successDiv.textContent = `Successfully deposited ₹${amount.toFixed(2)} to ${currentDepositUserId}. New balance: ₹${data.new_balance.toFixed(2)}`;
+          successDiv.classList.remove("hidden");
+
+          // Clear form after 2 seconds and refresh users list
+          setTimeout(() => {
+            closeDepositModal();
+            loadUsers();
+          }, 2000);
+        } catch (err) {
+          errorDiv.textContent = err.message;
+          errorDiv.classList.remove("hidden");
+        }
+      }
+
+      // ═══════════════════════════════════════════════════════════════════════
+      // ADMIN SUPPORT CHAT
+      // ═══════════════════════════════════════════════════════════════════════
+
+      let currentAdminTicketId = null;
+
+      async function loadSupport(statusFilter) {
+        const list = document.getElementById("support-list");
+        list.innerHTML =
+          '<p class="text-slate-400 text-center py-8">Loading...</p>';
+        try {
+          const url = statusFilter
+            ? `/support/admin/tickets?ticket_status=${statusFilter}&limit=100`
+            : "/support/admin/tickets?limit=100";
+          const res = await apiCall(url);
+          const data = await res.json();
+          const tickets = data.tickets || [];
+          if (!tickets.length) {
+            list.innerHTML =
+              '<p class="text-slate-400 text-center py-8">No support tickets found.</p>';
+            return;
+          }
+          list.innerHTML = tickets
+            .map((t) => {
+              const sc =
+                t.status === "RESOLVED"
+                  ? "text-emerald-400"
+                  : t.status === "IN_PROGRESS"
+                    ? "text-indigo-400"
+                    : t.status === "CLOSED"
+                      ? "text-slate-500"
+                      : "text-amber-400";
+              const bg =
+                t.status === "RESOLVED"
+                  ? "rgba(16,185,129,0.08)"
+                  : t.status === "IN_PROGRESS"
+                    ? "rgba(99,102,241,0.08)"
+                    : "rgba(245,158,11,0.08)";
+              return `<div class="p-4 rounded-xl cursor-pointer hover:bg-slate-800/50 transition"
+                style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);"
+                onclick="openAdminThread('${t.ticket_id}','${t.subject.replace(/'/g, "\\'")}','${t.user_id}')">
+              <div class="flex items-center justify-between mb-2">
+                <span class="font-medium text-sm">${t.subject}</span>
+                <span class="text-xs font-semibold ${sc}">${t.status}</span>
+              </div>
+              <div class="flex gap-4 text-xs text-slate-400">
+                <span><i class="ph ph-user mr-1"></i>${t.user_id}</span>
+                <span><i class="ph ph-chat-circle mr-1"></i>${t.message_count || 0} messages</span>
+                <span>${new Date(t.created_at).toLocaleString()}</span>
+              </div>
+            </div>`;
+            })
+            .join("");
+        } catch (err) {
+          list.innerHTML =
+            '<p class="text-red-400 text-center py-8">Error loading tickets</p>';
+        }
+      }
+
+      async function openAdminThread(ticketId, subject, userId) {
+        currentAdminTicketId = ticketId;
+        document.getElementById("admin-thread-subject").textContent = subject;
+        document.getElementById("admin-thread-user").textContent =
+          "User: " + userId;
+        document
+          .getElementById("admin-thread-panel")
+          .classList.remove("hidden");
+        await loadAdminThread(ticketId);
+      }
+
+      function closeAdminThread() {
+        currentAdminTicketId = null;
+        document.getElementById("admin-thread-panel").classList.add("hidden");
+      }
+
+      async function loadAdminThread(ticketId) {
+        const msgs = document.getElementById("admin-thread-messages");
+        msgs.innerHTML =
+          '<p class="text-slate-400 text-center py-4">Loading...</p>';
+        try {
+          const res = await apiCall(`/support/tickets/${ticketId}`);
+          const data = await res.json();
+          const messages = data.messages || [];
+          if (!messages.length) {
+            msgs.innerHTML =
+              '<p class="text-slate-400 text-center py-4 text-xs">No messages yet</p>';
+            return;
+          }
+          msgs.innerHTML = messages
+            .map((m) => {
+              const isAdmin = m.sender_role === "ADMIN";
+              return `<div class="p-3 rounded-lg text-xs" style="${isAdmin ? "background:rgba(99,102,241,0.12);margin-left:20%" : "background:rgba(255,255,255,0.04);margin-right:20%"}">
+              <p class="font-semibold mb-1" style="color:${isAdmin ? "#818cf8" : "rgba(255,255,255,0.5)"}">${isAdmin ? "⬥ You (Admin)" : m.sender_id}</p>
+              <p style="color:rgba(255,255,255,0.8);line-height:1.5;">${m.message}</p>
+              <p class="mt-1" style="color:rgba(255,255,255,0.3);">${new Date(m.sent_at).toLocaleString()}</p>
+            </div>`;
+            })
+            .join("");
+          msgs.scrollTop = msgs.scrollHeight;
+
+          // Hide resolve button if already resolved/closed
+          const ticket = data.ticket;
+          document.getElementById("admin-resolve-btn").style.display =
+            ticket && ["RESOLVED", "CLOSED"].includes(ticket.status)
+              ? "none"
+              : "inline-flex";
+        } catch (err) {
+          msgs.innerHTML =
+            '<p class="text-red-400 text-center py-4 text-xs">Error loading messages</p>';
+        }
+      }
+
+      async function resolveTicket(reactivateUser) {
+        if (!currentAdminTicketId) return;
+        const action = reactivateUser
+          ? "resolve and REACTIVATE this user"
+          : "close this ticket without reactivating";
+        if (!confirm(`Are you sure you want to ${action}?`)) return;
+        const note = prompt("Resolution note (optional):") || "";
+        try {
+          const res = await apiCall(
+            `/support/admin/tickets/${currentAdminTicketId}/resolve`,
+            {
+              method: "POST",
+              body: JSON.stringify({
+                resolution_note: note,
+                reactivate_user: reactivateUser,
+              }),
+            },
+          );
+          const data = await res.json();
+          if (res.ok) {
+            alert(
+              reactivateUser && data.user_reactivated
+                ? `✓ Ticket resolved. User account has been REACTIVATED.`
+                : `✓ Ticket closed.`,
+            );
+            closeAdminThread();
+            loadSupport();
+            if (data.user_reactivated) loadUsers(); // Refresh users tab too
+          } else {
+            alert("Error: " + (data.detail || "Failed"));
+          }
+        } catch (err) {
+          alert("Error: " + err.message);
+        }
+      }
+
+      async function sendAdminReply() {
+        if (!currentAdminTicketId) return;
+        const msg = document.getElementById("admin-reply-msg").value.trim();
+        if (!msg) return;
+        try {
+          const res = await apiCall(
+            `/support/tickets/${currentAdminTicketId}/messages`,
+            {
+              method: "POST",
+              body: JSON.stringify({ message: msg }),
+            },
+          );
+          if (!res.ok) {
+            const d = await res.json();
+            throw new Error(d.detail);
+          }
+          document.getElementById("admin-reply-msg").value = "";
+          await loadAdminThread(currentAdminTicketId);
+        } catch (err) {
+          alert("Error: " + err.message);
+        }
+      }
+      // ═══════════════════════════════════════════════════════════════════════════
+      // XAI EXPLANATION MODAL
+      // ═══════════════════════════════════════════════════════════════════════════
+
+      let _explainEvtSource = null;
+
+      async function openExplainModal(txnId) {
+        // Reset state
+        if (_explainEvtSource) { _explainEvtSource.close(); _explainEvtSource = null; }
+        document.getElementById("explain-txn-id").textContent = txnId;
+        document.getElementById("explain-loading").classList.remove("hidden");
+        document.getElementById("explain-error").classList.add("hidden");
+        document.getElementById("explain-results").classList.add("hidden");
+        document.getElementById("explain-rationale").textContent = "";
+        document.getElementById("explain-cursor").style.display = "inline-block";
+        document.getElementById("explain-modal").classList.remove("hidden");
+
+        // Use EventSource with auth token injected via URL param (SSE doesn't support custom headers)
+        // We POST the auth token to a one-time nonce endpoint — but since our SSE endpoint
+        // uses Depends(require_admin) we pass the token as a query param workaround:
+        // Actually FastAPI's Depends can read from headers; EventSource cannot set headers.
+        // Workaround: use fetch() with a ReadableStream instead.
+        try {
+          const res = await fetch(`/admin/fraud/${txnId}/explain`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+
+          if (!res.ok) {
+            const errData = await res.json().catch(() => ({ detail: res.statusText }));
+            showExplainError(errData.detail || "Request failed");
+            return;
+          }
+
+          const reader = res.body.getReader();
+          const decoder = new TextDecoder();
+          let buf = "";
+          let rationaleAccum = "";
+          let gotResult = false;
+
+          const pump = async () => {
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              buf += decoder.decode(value, { stream: true });
+              const parts = buf.split("\n\n");
+              buf = parts.pop(); // keep incomplete event in buffer
+
+              for (const part of parts) {
+                if (!part.trim()) continue;
+                const lines = part.split("\n");
+                let evtType = "message", evtData = "";
+                for (const line of lines) {
+                  if (line.startsWith("event: ")) evtType = line.slice(7).trim();
+                  else if (line.startsWith("data: ")) evtData = line.slice(6).trim();
+                }
+
+                if (evtType === "chunk") {
+                  // Show loading → results on first chunk
+                  if (!gotResult) {
+                    document.getElementById("explain-loading").classList.add("hidden");
+                    document.getElementById("explain-results").classList.remove("hidden");
+                  }
+                  const word = JSON.parse(evtData);
+                  rationaleAccum += word;
+                  document.getElementById("explain-rationale").textContent = rationaleAccum;
+
+                } else if (evtType === "result") {
+                  gotResult = true;
+                  const exp = JSON.parse(evtData);
+                  renderExplainResults(exp, rationaleAccum);
+
+                } else if (evtType === "done") {
+                  document.getElementById("explain-cursor").style.display = "none";
+                  reader.cancel();
+                  return;
+
+                } else if (evtType === "error") {
+                  const msg = JSON.parse(evtData);
+                  showExplainError(msg);
+                  reader.cancel();
+                  return;
+                }
+              }
+            }
+          };
+          pump();
+
+        } catch (err) {
+          showExplainError(err.message || "Unknown error");
+        }
+      }
+
+      function renderExplainResults(exp, streamedRationale) {
+        document.getElementById("explain-loading").classList.add("hidden");
+        document.getElementById("explain-results").classList.remove("hidden");
+
+        const score = exp.fraud_score ?? 0;
+        const threshold = exp.threshold ?? 0.5;
+        const isFraud = score >= threshold;
+
+        // Gauge
+        const fillEl = document.getElementById("explain-gauge-fill");
+        const markerEl = document.getElementById("explain-threshold-marker");
+        const badgeEl = document.getElementById("explain-score-badge");
+        const scoreValEl = document.getElementById("explain-score-val");
+
+        fillEl.style.width = `${Math.min(score * 100, 100)}%`;
+        fillEl.style.background = isFraud
+          ? "linear-gradient(90deg, #f97316, #ef4444)"
+          : "linear-gradient(90deg, #10b981, #34d399)";
+        markerEl.style.left = `${Math.min(threshold * 100, 100)}%`;
+        badgeEl.textContent = isFraud ? "FRAUD" : "CLEAN";
+        badgeEl.className = `text-xs px-2 py-0.5 rounded-full font-semibold ${
+          isFraud ? "bg-red-500/20 text-red-400" : "bg-emerald-500/20 text-emerald-400"
+        }`;
+        scoreValEl.textContent = `Score: ${(score * 100).toFixed(2)}% | Threshold: ${(threshold * 100).toFixed(2)}%`;
+
+        // Feature chart
+        const chartEl = document.getElementById("explain-chart");
+        const allFeatures = [
+          ...(exp.top_positive_features || []),
+          ...(exp.top_negative_features || []),
+        ].sort((a, b) => Math.abs(b.contribution) - Math.abs(a.contribution));
+
+        const maxAbs = Math.max(...allFeatures.map(f => Math.abs(f.contribution)), 0.001);
+
+        chartEl.innerHTML = allFeatures.map(f => {
+          const pct = Math.min((Math.abs(f.contribution) / maxAbs) * 100, 100);
+          const isPos = f.contribution > 0;
+          const barColor = isPos
+            ? "linear-gradient(90deg,#ef4444,#f97316)"
+            : "linear-gradient(90deg,#10b981,#34d399)";
+          const sign = isPos ? "+" : "";
+          return `
+            <div class="flex items-center gap-3">
+              <span class="text-xs text-slate-400 w-36 truncate" title="${f.feature}">${f.feature}</span>
+              <div class="flex-1 relative h-5 bg-slate-700/50 rounded overflow-hidden">
+                <div style="width:${pct}%;height:100%;background:${barColor};transition:width .5s ease"></div>
+              </div>
+              <span class="text-xs font-mono w-16 text-right ${isPos ? 'text-red-400' : 'text-emerald-400'}">${sign}${f.contribution.toFixed(4)}</span>
+            </div>
+          `;
+        }).join("");
+
+        // Rationale (use what was streamed, or fall back)
+        const rationaleEl = document.getElementById("explain-rationale");
+        if (!rationaleEl.textContent.trim()) {
+          rationaleEl.textContent = exp.rationale || "No rationale available.";
+        }
+
+        // Metadata badges
+        const modelBadge = document.getElementById("explain-model-badge");
+        const sourceBadge = document.getElementById("explain-source-badge");
+        modelBadge.querySelector("span").textContent = `Model: ${exp.model_version || "unknown"}`;
+        sourceBadge.querySelector("span").textContent = `Threshold source: ${exp.threshold_source || "unknown"}`;
+      }
+
+      function showExplainError(msg) {
+        document.getElementById("explain-loading").classList.add("hidden");
+        document.getElementById("explain-results").classList.add("hidden");
+        document.getElementById("explain-error").classList.remove("hidden");
+        document.getElementById("explain-error-msg").textContent = msg;
+      }
+
+      function closeExplainModal() {
+        if (_explainEvtSource) { _explainEvtSource.close(); _explainEvtSource = null; }
+        document.getElementById("explain-modal").classList.add("hidden");
+      }
+
+      function handleExplainModalBackdrop(event) {
+        if (event.target === document.getElementById("explain-modal")) {
+          closeExplainModal();
+        }
+      }
+    </script>
+  </body>
+</html>

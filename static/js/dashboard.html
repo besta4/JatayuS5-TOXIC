@@ -1,0 +1,952 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Dashboard – Jatayu</title>
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: [
+                "-apple-system",
+                "BlinkMacSystemFont",
+                "Segoe UI",
+                "Helvetica",
+                "Arial",
+                "sans-serif",
+              ],
+            },
+          },
+        },
+      };
+    </script>
+
+    <script
+      src="https://unpkg.com/@phosphor-icons/web@2.1.1/src/index.js"
+      defer
+    ></script>
+
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial,
+          sans-serif;
+        background: #000000;
+        color: #ffffff;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+      }
+
+      /* Subtle noise texture */
+      body::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
+        pointer-events: none;
+        opacity: 0.4;
+        z-index: 0;
+      }
+
+      .card {
+        background: rgba(18, 18, 18, 0.6);
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+        backdrop-filter: blur(20px);
+        border-radius: 16px;
+        transition: all 0.2s ease;
+      }
+
+      .card:hover {
+        border-color: rgba(255, 255, 255, 0.1);
+      }
+
+      .header-bar {
+        background: rgba(0, 0, 0, 0.8);
+        backdrop-filter: blur(20px);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+      }
+
+      .logo-mark {
+        width: 32px;
+        height: 32px;
+        object-fit: contain;
+        filter: drop-shadow(0 0 10px rgba(62, 228, 255, 0.15));
+      }
+
+      .input-field {
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        color: #ffffff;
+        transition: all 0.2s ease;
+        border-radius: 10px;
+        font-size: 15px;
+      }
+
+      .input-field:focus {
+        border-color: rgba(255, 255, 255, 0.2);
+        background: rgba(255, 255, 255, 0.06);
+        outline: none;
+        box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.04);
+      }
+
+      .btn-primary {
+        background: #ffffff;
+        color: #000000;
+        font-weight: 600;
+        transition: all 0.2s ease;
+        border-radius: 10px;
+      }
+
+      .btn-primary:hover {
+        background: rgba(255, 255, 255, 0.9);
+        transform: translateY(-1px);
+      }
+
+      .btn-secondary {
+        background: rgba(255, 255, 255, 0.06);
+        color: #ffffff;
+        font-weight: 500;
+        transition: all 0.2s ease;
+        border-radius: 10px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+      }
+
+      .btn-secondary:hover {
+        background: rgba(255, 255, 255, 0.1);
+        border-color: rgba(255, 255, 255, 0.12);
+      }
+
+      .status-completed {
+        color: #10b981;
+      }
+      .status-held {
+        color: #f59e0b;
+      }
+      .status-blocked {
+        color: #ef4444;
+      }
+
+      .tx-item {
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        border-radius: 12px;
+        transition: all 0.2s ease;
+      }
+
+      .tx-item:hover {
+        background: rgba(255, 255, 255, 0.05);
+        border-color: rgba(255, 255, 255, 0.1);
+      }
+
+      .modal-backdrop {
+        background: rgba(0, 0, 0, 0.75);
+        backdrop-filter: blur(8px);
+        overflow-y: auto;
+        overscroll-behavior: contain;
+      }
+
+      .modal-content {
+        background: rgba(12, 12, 12, 0.95);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+        backdrop-filter: blur(20px);
+        border-radius: 16px;
+        max-height: 90vh;
+        overflow-y: auto;
+      }
+
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
+          transform: translateY(10px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      .card {
+        animation: fadeIn 0.4s ease;
+      }
+
+      .agent-flow {
+        margin-top: 14px;
+        padding: 12px;
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+      }
+
+      .agent-step {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        padding: 8px 0;
+        border-bottom: 1px dashed rgba(255, 255, 255, 0.08);
+      }
+
+      .agent-step:last-child {
+        border-bottom: none;
+        padding-bottom: 0;
+      }
+
+      .agent-dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 999px;
+        margin-top: 5px;
+        background: rgba(255, 255, 255, 0.2);
+        flex-shrink: 0;
+      }
+
+      .agent-step.pending .agent-dot {
+        background: rgba(255, 255, 255, 0.2);
+      }
+      .agent-step.running .agent-dot {
+        background: #f59e0b;
+        box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.15);
+      }
+      .agent-step.completed .agent-dot {
+        background: #10b981;
+      }
+      .agent-step.error .agent-dot {
+        background: #ef4444;
+      }
+    </style>
+  </head>
+
+  <body class="min-h-screen">
+    <!-- Header -->
+    <header
+      class="header-bar sticky top-0 z-50 px-6 py-4 flex items-center justify-between"
+    >
+      <div class="flex items-center gap-3">
+        <img
+          src="/static/assets/jatayu-logo.png"
+          alt="Jatayu Logo"
+          class="logo-mark"
+        />
+        <span style="font-size: 17px; font-weight: 600; letter-spacing: -0.3px"
+          >Jatayu</span
+        >
+      </div>
+      <div class="flex items-center gap-4">
+        <span
+          id="user-name"
+          style="font-size: 14px; color: rgba(255, 255, 255, 0.5)"
+        ></span>
+        <button
+          onclick="logout()"
+          style="
+            font-size: 14px;
+            color: rgba(255, 255, 255, 0.5);
+            background: none;
+            border: none;
+            cursor: pointer;
+            transition: color 0.2s;
+          "
+          onmouseover="this.style.color = 'rgba(255, 255, 255, 0.9)'"
+          onmouseout="this.style.color = 'rgba(255, 255, 255, 0.5)'"
+        >
+          Sign Out
+        </button>
+      </div>
+    </header>
+
+    <main class="max-w-5xl mx-auto p-6 relative z-10">
+      <!-- Balance Card -->
+      <div class="card p-8 mb-6">
+        <div class="flex items-center justify-between mb-6">
+          <div>
+            <p
+              style="
+                font-size: 13px;
+                color: rgba(255, 255, 255, 0.5);
+                margin-bottom: 8px;
+                font-weight: 500;
+              "
+            >
+              Available Balance
+            </p>
+            <p
+              id="balance"
+              style="font-size: 42px; font-weight: 600; letter-spacing: -1px"
+            >
+              Loading...
+            </p>
+          </div>
+        </div>
+        <div class="flex gap-3">
+          <button
+            onclick="showSendModal()"
+            class="btn-primary flex-1 py-3 font-semibold flex items-center justify-center gap-2"
+          >
+            <i class="ph-bold ph-paper-plane-tilt"></i> Send Money
+          </button>
+          <button
+            onclick="showPayeesModal()"
+            class="btn-secondary flex-1 py-3 font-semibold flex items-center justify-center gap-2"
+          >
+            <i class="ph-bold ph-users"></i> Payees
+          </button>
+        </div>
+      </div>
+
+      <!-- Recent Transactions -->
+      <div class="card p-6">
+        <div class="flex items-center justify-between mb-5">
+          <h2 style="font-size: 17px; font-weight: 600; letter-spacing: -0.3px">
+            Recent Transactions
+          </h2>
+          <button
+            onclick="loadTransactions()"
+            style="
+              font-size: 14px;
+              color: rgba(255, 255, 255, 0.5);
+              background: none;
+              border: none;
+              cursor: pointer;
+              transition: color 0.2s;
+              font-weight: 500;
+            "
+            onmouseover="this.style.color = 'rgba(255, 255, 255, 0.9)'"
+            onmouseout="this.style.color = 'rgba(255, 255, 255, 0.5)'"
+          >
+            <i class="ph ph-arrows-clockwise mr-1"></i> Refresh
+          </button>
+        </div>
+        <div id="transactions-list" class="space-y-2">
+          <p
+            style="
+              color: rgba(255, 255, 255, 0.4);
+              text-align: center;
+              padding: 48px 0;
+              font-size: 14px;
+            "
+          >
+            Loading transactions...
+          </p>
+        </div>
+      </div>
+    </main>
+
+    <!-- Send Money Modal -->
+    <div
+      id="send-modal"
+      class="modal-backdrop fixed inset-0 hidden z-50 flex items-start justify-center p-4"
+    >
+      <div class="modal-content p-8 w-full max-w-md">
+        <div class="flex items-center justify-between mb-6">
+          <h3 style="font-size: 19px; font-weight: 600; letter-spacing: -0.3px">
+            Send Money
+          </h3>
+          <button
+            onclick="closeSendModal()"
+            style="
+              color: rgba(255, 255, 255, 0.5);
+              background: none;
+              border: none;
+              cursor: pointer;
+              transition: color 0.2s;
+            "
+            onmouseover="this.style.color = '#ffffff'"
+            onmouseout="this.style.color = 'rgba(255, 255, 255, 0.5)'"
+          >
+            <i class="ph ph-x text-xl"></i>
+          </button>
+        </div>
+        <form onsubmit="sendMoney(event)" class="space-y-5">
+          <div>
+            <label
+              style="
+                display: block;
+                font-size: 13px;
+                font-weight: 500;
+                color: rgba(255, 255, 255, 0.7);
+                margin-bottom: 8px;
+              "
+              >Recipient ID</label
+            >
+            <input
+              type="text"
+              id="send-recipient"
+              required
+              placeholder="e.g., M000000001 or C000000002"
+              class="input-field w-full px-4 py-3"
+            />
+            <p
+              style="
+                font-size: 12px;
+                color: rgba(255, 255, 255, 0.4);
+                margin-top: 6px;
+              "
+            >
+              Enter user ID (C for customer, M for merchant)
+            </p>
+          </div>
+          <div>
+            <label
+              style="
+                display: block;
+                font-size: 13px;
+                font-weight: 500;
+                color: rgba(255, 255, 255, 0.7);
+                margin-bottom: 8px;
+              "
+              >Amount (INR)</label
+            >
+            <input
+              type="number"
+              id="send-amount"
+              required
+              min="1"
+              step="0.01"
+              placeholder="Enter amount"
+              class="input-field w-full px-4 py-3"
+            />
+          </div>
+          <div>
+            <label
+              style="
+                display: block;
+                font-size: 13px;
+                font-weight: 500;
+                color: rgba(255, 255, 255, 0.7);
+                margin-bottom: 8px;
+              "
+              >Description (optional)</label
+            >
+            <input
+              type="text"
+              id="send-description"
+              placeholder="Payment for..."
+              class="input-field w-full px-4 py-3"
+            />
+          </div>
+          <button
+            id="send-submit-btn"
+            type="submit"
+            class="btn-primary w-full py-3 font-semibold"
+          >
+            Send Money
+          </button>
+          <button
+            type="button"
+            onclick="cancelSendFlow()"
+            class="btn-secondary w-full py-3 font-semibold"
+          >
+            Cancel
+          </button>
+          <div id="agent-flow" class="agent-flow hidden" aria-live="polite">
+            <p
+              id="agent-flow-status"
+              style="
+                font-size: 12px;
+                color: rgba(255, 255, 255, 0.55);
+                margin-bottom: 8px;
+                letter-spacing: 0.2px;
+              "
+            >
+              Live Fraud Pipeline
+            </p>
+            <div id="agent-flow-steps"></div>
+          </div>
+          <div
+            id="send-error"
+            class="hidden text-center"
+            style="color: #ff4444; font-size: 14px; font-weight: 500"
+          ></div>
+          <div
+            id="send-success"
+            class="hidden text-center"
+            style="color: #10b981; font-size: 14px; font-weight: 500"
+          ></div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Payees Modal -->
+    <div
+      id="payees-modal"
+      class="modal-backdrop fixed inset-0 hidden z-50 flex items-center justify-center p-4"
+    >
+      <div
+        class="modal-content p-8 w-full max-w-2xl max-h-[80vh] overflow-y-auto"
+      >
+        <div class="flex items-center justify-between mb-6">
+          <div>
+            <h3
+              style="font-size: 19px; font-weight: 600; letter-spacing: -0.3px"
+            >
+              Saved Payees
+            </h3>
+            <p
+              style="
+                font-size: 13px;
+                color: rgba(255, 255, 255, 0.5);
+                margin-top: 4px;
+              "
+            >
+              Quick access to your frequent recipients
+            </p>
+          </div>
+          <button
+            onclick="closePayeesModal()"
+            style="
+              color: rgba(255, 255, 255, 0.5);
+              background: none;
+              border: none;
+              cursor: pointer;
+              transition: color 0.2s;
+            "
+            onmouseover="this.style.color = '#ffffff'"
+            onmouseout="this.style.color = 'rgba(255, 255, 255, 0.5)'"
+          >
+            <i class="ph ph-x text-xl"></i>
+          </button>
+        </div>
+        <div id="payees-list" class="space-y-2">
+          <p
+            style="
+              color: rgba(255, 255, 255, 0.4);
+              text-align: center;
+              padding: 48px 0;
+              font-size: 14px;
+            "
+          >
+            Loading...
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      let currentUser = null;
+      let flowPollTimer = null;
+      let activeFlowId = null;
+      let flowCancelled = false;
+      const flowStepLabels = [
+        { key: "agent1", name: "Agent 1 · Transaction Monitoring" },
+        { key: "agent2", name: "Agent 2 · Pattern Detection" },
+        { key: "agent3", name: "Agent 3 · Risk Assessment" },
+        { key: "agent4", name: "Agent 4 · Alert & Block" },
+        { key: "agent5", name: "Agent 5 · Compliance Logging" },
+      ];
+
+      // Auth check
+      const token = localStorage.getItem("jatayu_token");
+      if (!token) {
+        window.location.href = "/login";
+      } else {
+        currentUser = JSON.parse(localStorage.getItem("jatayu_user") || "{}");
+        if (currentUser.user_type === "ADMIN") {
+          window.location.href = "/admin";
+        } else if (currentUser.user_type === "MERCHANT") {
+          window.location.href = "/merchant";
+        }
+        document.getElementById("user-name").textContent =
+          currentUser.display_name || currentUser.email;
+        loadBalance();
+        loadTransactions();
+      }
+
+      async function apiCall(endpoint, options = {}) {
+        const headers = {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+          ...options.headers,
+        };
+        const res = await fetch(endpoint, { ...options, headers });
+        if (res.status === 401) {
+          localStorage.clear();
+          document.cookie = "jatayu_token=; Max-Age=0; Path=/; SameSite=Lax";
+          window.location.href = "/login";
+        }
+        return res;
+      }
+
+      async function loadBalance() {
+        try {
+          const res = await apiCall("/users/accounts");
+          const data = await res.json();
+          if (data[0]) {
+            document.getElementById("balance").textContent =
+              `₹${Number(data[0].balance).toLocaleString("en-IN")}`;
+          }
+        } catch (err) {
+          document.getElementById("balance").textContent = "Error loading";
+        }
+      }
+
+      async function loadTransactions() {
+        try {
+          const res = await apiCall("/transactions/?limit=20");
+          const data = await res.json();
+          const list = document.getElementById("transactions-list");
+
+          if (data.length === 0) {
+            list.innerHTML =
+              '<p style="color: rgba(255, 255, 255, 0.4); text-align: center; padding: 48px 0; font-size: 14px;">No transactions yet</p>';
+            return;
+          }
+
+          list.innerHTML = data
+            .map((t) => {
+              const isSent = t.direction === "sent";
+              const icon = isSent ? "arrow-up-right" : "arrow-down-left";
+              const color = isSent ? "#ef4444" : "#10b981";
+              const sign = isSent ? "-" : "+";
+              const statusClass =
+                t.status === "COMPLETED"
+                  ? "status-completed"
+                  : t.status === "HELD"
+                    ? "status-held"
+                    : "status-blocked";
+              const other = isSent ? t.receiver_id : t.sender_id;
+
+              // Show explanation for HELD or BLOCKED transactions
+              const showReason =
+                (t.status === "HELD" || t.status === "BLOCKED") &&
+                t.explanation;
+
+              return `
+            <div class="tx-item p-4 ${t.status === "BLOCKED" ? "border-l-2" : t.status === "HELD" ? "border-l-2" : ""}" style="${t.status === "BLOCKED" ? "border-left-color: #ef4444;" : t.status === "HELD" ? "border-left-color: #f59e0b;" : ""}">
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-4">
+                  <div style="width: 40px; height: 40px; border-radius: 50%; background: rgba(255, 255, 255, 0.04); display: flex; align-items: center; justify-content: center;">
+                    <i class="ph ph-${icon}" style="color: ${color}; font-size: 18px;"></i>
+                  </div>
+                  <div>
+                    <p style="font-weight: 500; font-size: 14px;">${isSent ? "To" : "From"}: ${other}</p>
+                    <p style="font-size: 12px; color: rgba(255, 255, 255, 0.4); margin-top: 2px;">${new Date(t.initiated_at).toLocaleString()}</p>
+                  </div>
+                </div>
+                <div style="text-align: right;">
+                  <p style="color: ${color}; font-weight: 600; font-size: 15px;">${sign}₹${Number(t.amount).toLocaleString("en-IN")}</p>
+                  <p class="${statusClass}" style="font-size: 12px; margin-top: 2px;">${t.status}</p>
+                </div>
+              </div>
+              ${
+                showReason
+                  ? `
+                <div style="margin-top: 12px; padding: 10px; border-radius: 8px; background: rgba(255, 255, 255, 0.03); font-size: 12px; border-left: 2px solid ${t.status === "BLOCKED" ? "#ef4444" : "#f59e0b"};">
+                  <span style="color: ${t.status === "BLOCKED" ? "#ef4444" : "#f59e0b"}; font-weight: 600;">
+                    ${t.status === "BLOCKED" ? "⛔ Blocked:" : "⏸️ On Hold:"}
+                  </span>
+                  <span style="color: rgba(255, 255, 255, 0.7);">${t.explanation}</span>
+                </div>
+              `
+                  : ""
+              }
+            </div>
+          `;
+            })
+            .join("");
+        } catch (err) {
+          document.getElementById("transactions-list").innerHTML =
+            '<p style="color: #ef4444; text-align: center; padding: 48px 0; font-size: 14px;">Error loading transactions</p>';
+        }
+      }
+
+      function showSendModal() {
+        document.getElementById("send-modal").classList.remove("hidden");
+        document.body.style.overflow = "hidden";
+      }
+      function closeSendModal() {
+        document.getElementById("send-modal").classList.add("hidden");
+        document.getElementById("send-error").classList.add("hidden");
+        document.getElementById("send-success").classList.add("hidden");
+        stopFlowPolling();
+        resetFlowTracker();
+        document.body.style.overflow = "";
+      }
+
+      function cancelSendFlow() {
+        flowCancelled = true;
+        stopFlowPolling();
+        const submitBtn = document.getElementById("send-submit-btn");
+        if (submitBtn) {
+          submitBtn.disabled = false;
+          submitBtn.innerHTML = "Send Money";
+        }
+        closeSendModal();
+      }
+
+      function resetFlowTracker() {
+        const flowEl = document.getElementById("agent-flow");
+        const stepsEl = document.getElementById("agent-flow-steps");
+        flowEl.classList.add("hidden");
+        stepsEl.innerHTML = "";
+      }
+
+      function renderFlowTracker(flowData) {
+        const flowEl = document.getElementById("agent-flow");
+        const stepsEl = document.getElementById("agent-flow-steps");
+        flowEl.classList.remove("hidden");
+        const flowStatusEl = document.getElementById("agent-flow-status");
+        const status = flowData?.status || "running";
+        if (status === "completed") {
+          flowStatusEl.textContent = "Pipeline complete";
+          flowStatusEl.style.color = "#10b981";
+        } else if (status === "error") {
+          flowStatusEl.textContent = "Pipeline failed";
+          flowStatusEl.style.color = "#ef4444";
+        } else {
+          flowStatusEl.textContent = "Pipeline running...";
+          flowStatusEl.style.color = "rgba(255, 255, 255, 0.55)";
+        }
+
+        const stepMap = {};
+        (flowData?.steps || []).forEach((s) => {
+          stepMap[s.agent_key] = s;
+        });
+
+        stepsEl.innerHTML = flowStepLabels
+          .map(({ key, name }) => {
+            const step = stepMap[key] || {
+              status: "pending",
+              summary: null,
+              latency_ms: null,
+              error: null,
+            };
+            const status = step.status || "pending";
+            const latency = Number.isFinite(step.latency_ms)
+              ? `${step.latency_ms.toFixed(1)} ms`
+              : "";
+            const meta = [step.summary, latency].filter(Boolean).join(" · ");
+            const detail = step.error
+              ? `<span style="color:#ef4444">${step.error}</span>`
+              : meta || "Waiting...";
+            return `
+          <div class="agent-step ${status}">
+            <span class="agent-dot"></span>
+            <div style="min-width:0">
+              <p style="font-size:13px; font-weight:600; color:rgba(255,255,255,0.9)">${name}</p>
+              <p style="font-size:12px; color:rgba(255,255,255,0.6); margin-top:2px">${detail}</p>
+            </div>
+          </div>
+        `;
+          })
+          .join("");
+      }
+
+      async function pollFlow(flowId) {
+        if (!flowId) return;
+        try {
+          const res = await apiCall(`/transactions/flow/${flowId}`);
+          if (!res.ok) return;
+          const data = await res.json();
+          renderFlowTracker(data);
+          if (data.status === "completed" || data.status === "error") {
+            stopFlowPolling();
+          }
+        } catch (_) {
+          // Keep UI resilient; transaction response still contains final result.
+        }
+      }
+
+      function startFlowPolling(flowId) {
+        activeFlowId = flowId;
+        flowCancelled = false;
+        if (flowPollTimer) clearInterval(flowPollTimer);
+        pollFlow(flowId);
+        flowPollTimer = setInterval(() => pollFlow(flowId), 350);
+      }
+
+      function stopFlowPolling() {
+        if (flowPollTimer) {
+          clearInterval(flowPollTimer);
+          flowPollTimer = null;
+        }
+        activeFlowId = null;
+      }
+
+      // Payees Modal Functions
+      function showPayeesModal() {
+        document.getElementById("payees-modal").classList.remove("hidden");
+        document.body.style.overflow = "hidden";
+        loadPayeesInternal();
+      }
+
+      function closePayeesModal() {
+        document.getElementById("payees-modal").classList.add("hidden");
+        document.body.style.overflow = "";
+      }
+
+      async function loadPayees() {
+        showPayeesModal();
+      }
+
+      async function loadPayeesInternal() {
+        const list = document.getElementById("payees-list");
+        list.innerHTML =
+          '<p class="text-slate-400 text-center py-8">Loading...</p>';
+
+        try {
+          const res = await apiCall("/users/payees");
+          const data = await res.json();
+
+          if (!data || data.length === 0) {
+            list.innerHTML =
+              '<p style="color: rgba(255, 255, 255, 0.4); text-align: center; padding: 48px 0; font-size: 14px;">No saved payees yet. Send money to someone to add them!</p>';
+            return;
+          }
+
+          list.innerHTML = data
+            .map(
+              (p) => `
+          <div class="tx-item p-4 cursor-pointer" onclick="quickSendToPayee('${p.payee_user_id}', '${p.payee_name}')">
+            <div class="flex items-center justify-between mb-3">
+              <div class="flex items-center gap-3">
+                <div style="width: 40px; height: 40px; border-radius: 50%; background: rgba(255, 255, 255, 0.06); display: flex; align-items: center; justify-content: center;">
+                  <i class="ph-bold ${p.payee_user_id.startsWith("M") ? "ph-storefront" : "ph-user"}" style="color: rgba(255, 255, 255, 0.7); font-size: 18px;"></i>
+                </div>
+                <div>
+                  <p style="font-weight: 500; font-size: 14px;">${p.payee_name}</p>
+                  <p style="font-size: 12px; color: rgba(255, 255, 255, 0.4); margin-top: 2px;">${p.payee_user_id}</p>
+                </div>
+              </div>
+              <i class="ph ph-paper-plane-tilt" style="color: rgba(255, 255, 255, 0.3);"></i>
+            </div>
+            <div style="display: flex; gap: 16px; font-size: 12px; color: rgba(255, 255, 255, 0.4);">
+              <span>${p.total_txn_count} transactions</span>
+              <span>₹${Number(p.total_txn_amount).toLocaleString("en-IN")}</span>
+            </div>
+          </div>
+        `,
+            )
+            .join("");
+        } catch (err) {
+          list.innerHTML =
+            '<p style="color: #ef4444; text-align: center; padding: 48px 0; font-size: 14px;">Error loading payees</p>';
+        }
+      }
+
+      function quickSendToPayee(payeeId, payeeName) {
+        closePayeesModal();
+        showSendModal();
+        document.getElementById("send-recipient").value = payeeId;
+        document
+          .getElementById("send-recipient")
+          .setAttribute("readonly", true);
+        document.getElementById("send-description").value =
+          `Payment to ${payeeName}`;
+        document.getElementById("send-amount").focus();
+
+        // Remove readonly after 3 seconds
+        setTimeout(() => {
+          document.getElementById("send-recipient").removeAttribute("readonly");
+        }, 3000);
+      }
+
+      async function sendMoney(e) {
+        e.preventDefault();
+        const submitBtn = e.target.querySelector('button[type="submit"]');
+        const originalText = submitBtn.innerHTML;
+
+        // Prevent double-click
+        if (submitBtn.disabled) return;
+        submitBtn.disabled = true;
+        submitBtn.innerHTML =
+          '<i class="ph ph-spinner animate-spin mr-2"></i> Processing...';
+
+        const recipient = document.getElementById("send-recipient").value;
+        const amount = parseFloat(document.getElementById("send-amount").value);
+        const description = document.getElementById("send-description").value;
+        const errorEl = document.getElementById("send-error");
+        const successEl = document.getElementById("send-success");
+        const flowId = (
+          crypto.randomUUID
+            ? crypto.randomUUID()
+            : `${Date.now()}-${Math.random().toString(36).slice(2)}`
+        ).replace(/-/g, "");
+        errorEl.classList.add("hidden");
+        successEl.classList.add("hidden");
+        resetFlowTracker();
+        startFlowPolling(flowId);
+
+        try {
+          const res = await apiCall("/transactions/", {
+            method: "POST",
+            headers: { "X-Flow-ID": flowId },
+            body: JSON.stringify({
+              receiver_id: recipient,
+              amount: amount,
+              type: recipient.startsWith("M") ? "PAYMENT" : "TRANSFER",
+              description: description,
+            }),
+          });
+
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.detail || "Transaction failed");
+          if (flowCancelled) return;
+          await pollFlow(data?.fraud_check?.flow_id || flowId);
+
+          if (data.status === "COMPLETED") {
+            successEl.innerHTML = `<span class="text-emerald-400">✓ Transaction completed!</span><br><span class="text-xs text-slate-400">New balance: ₹${data.sender_new_balance?.toLocaleString() || "N/A"}</span>`;
+          } else if (data.status === "HELD") {
+            const reason =
+              data.fraud_check?.explanation ||
+              "Under review by our security team";
+            successEl.innerHTML = `<span class="text-amber-400">⏸️ Transaction on hold</span><br><span class="text-xs text-slate-400">${reason}</span>`;
+          } else if (data.status === "BLOCKED") {
+            const reason =
+              data.fraud_check?.explanation ||
+              "Transaction blocked by fraud detection";
+            throw new Error(`⛔ ${reason}`);
+          }
+          successEl.classList.remove("hidden");
+
+          loadBalance();
+          loadTransactions();
+        } catch (err) {
+          if (flowCancelled) return;
+          const message = err?.message || "Transaction failed";
+          errorEl.textContent = message;
+
+          if (
+            message.toLowerCase().includes("suspend") ||
+            message.toLowerCase().includes("block")
+          ) {
+            errorEl.appendChild(document.createElement("br"));
+            const link = document.createElement("a");
+            link.href = "/suspended";
+            link.textContent = "Contact Support to Resolve";
+            link.style.color = "#fbbf24";
+            link.style.textDecoration = "underline";
+            link.style.fontWeight = "600";
+            errorEl.appendChild(link);
+          }
+
+          errorEl.classList.remove("hidden");
+        } finally {
+          if (!flowCancelled) {
+            stopFlowPolling();
+          }
+          submitBtn.disabled = false;
+          submitBtn.innerHTML = originalText;
+        }
+      }
+
+      function logout() {
+        apiCall("/auth/logout", { method: "POST" }).finally(() => {
+          localStorage.clear();
+          document.cookie = "jatayu_token=; Max-Age=0; Path=/; SameSite=Lax";
+          window.location.href = "/login";
+        });
+      }
+    </script>
+  </body>
+</html>
