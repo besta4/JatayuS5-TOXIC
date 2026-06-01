@@ -32,6 +32,14 @@ logger = logging.getLogger(__name__)
 
 WINDOW_SIZE = 75  # Rolling buffer depth (must match orchestrator config)
 
+# ── Dynamic Fraud Rule Constants ──────────────────────────────────────────────
+VELOCITY_MIN_AMOUNT_THRESHOLD = 100.0   # Exempt transactions below this from velocity blocking
+VELOCITY_SPIKE_COUNT_THRESHOLD = 6      # Number of recent transactions in window indicating velocity anomaly
+MULE_MICRO_AMOUNT_THRESHOLD = 500.0     # Threshold to distinguish micro-structuring from normal transfers
+MULE_LARGE_TOTAL_THRESHOLD = 20000.0    # Cumulative volume threshold indicating high-risk mule activity
+DORMANT_LARGE_AMOUNT_THRESHOLD = 10000.0 # Threshold for sudden large transfers on dormant accounts
+ATO_FRAUD_SCORE_THRESHOLD = 0.7         # XGBoost score threshold for Account Takeover suspicion
+
 
 class PatternDetectionAgent(BaseAgent):
     """
@@ -154,6 +162,26 @@ class PatternDetectionAgent(BaseAgent):
         pattern: PatternType = PatternType.NONE
         confidence: float = 0.0
 
+        # Fetch time-based velocity metrics early to share across multiple rules
+        db_txn_count = 0
+        db_total_amount = 0.0
+        db_unique_receivers = 0
+        db_avg_gap = float("inf")
+        db_min_gap = float("inf")
+        if msg.nameOrig:
+            try:
+                import database as db
+                db_velocity = db.get_sender_time_velocity(
+                    msg.nameOrig, lookback_minutes=10
+                )
+                db_txn_count = db_velocity["txn_count"]
+                db_total_amount = db_velocity["total_amount"]
+                db_unique_receivers = db_velocity["unique_receivers"]
+                db_avg_gap = db_velocity["avg_inter_txn_seconds"]
+                db_min_gap = db_velocity["min_inter_txn_seconds"]
+            except Exception as e:
+                logger.debug("[%s] Early velocity query failed: %s", self.name, e)
+
         # ══════════════════════════════════════════════════════════════════════
         # RULE 1: MULE_NETWORK — Multi-source convergence detection
         # ══════════════════════════════════════════════════════════════════════
@@ -162,7 +190,73 @@ class PatternDetectionAgent(BaseAgent):
         # Layer C: Redis real-time inbound stats (sub-second latency)
         # ══════════════════════════════════════════════════════════════════════
 
-        is_merchant = msg.nameDest and msg.nameDest.startswith("M")
+        # Verify if the destination is a registered and active merchant in the database
+        is_merchant = False
+        if msg.nameDest:
+            try:
+                import database as db
+                dest_user = db.get_user_by_id(msg.nameDest)
+                if dest_user and dest_user.get("user_type") == "MERCHANT" and dest_user.get("account_status") == "ACTIVE":
+                    is_merchant = True
+            except Exception as e:
+                logger.debug("[%s] Database merchant check failed: %s", self.name, e)
+                # Fallback to naming prefix check
+                is_merchant = msg.nameDest.startswith("M")
+
+        receiver_has_prior_flow = False
+        if msg.nameDest:
+            try:
+                import database as db
+                receiver_has_prior_flow = (
+                    db.get_user_transaction_count(
+                        msg.nameDest,
+                        exclude_transaction_id=msg.transaction_id,
+                        lookback_days=90,
+                    )
+                    > 0
+                )
+            except Exception as e:
+                logger.debug("[%s] Receiver history check failed: %s", self.name, e)
+
+        current_is_micro = msg.amount is not None and msg.amount < MULE_MICRO_AMOUNT_THRESHOLD
+        is_receiver_dormant = (
+            bool(msg.nameDest)
+            and (msg.oldbalanceDest or 0.0) <= 0.0
+            and not receiver_has_prior_flow
+        )
+        origin_looks_like_disburser = False
+        if msg.nameOrig:
+            try:
+                import database as db
+                origin_user = db.get_user_with_profile(msg.nameOrig) or db.get_user_by_id(msg.nameOrig)
+                if origin_user:
+                    origin_text = " ".join(
+                        str(origin_user.get(key) or "")
+                        for key in ("user_type", "email", "display_name", "business_name")
+                    ).lower()
+                    origin_looks_like_disburser = (
+                        origin_user.get("user_type") == "MERCHANT"
+                        or any(
+                            token in origin_text
+                            for token in ("corp", "company", "business", "merchant", "employer", "payroll", "salary")
+                        )
+                    )
+            except Exception as e:
+                logger.debug("[%s] Origin disbursement profile check failed: %s", self.name, e)
+
+        amount_value = float(msg.amount or 0.0)
+        sender_balance_before = float(msg.oldbalanceOrg or 0.0)
+        sender_drain_ratio = (
+            amount_value / sender_balance_before
+            if sender_balance_before > 0
+            else 1.0
+        )
+        looks_like_funded_disbursement = (
+            origin_looks_like_disburser
+            and amount_value > 0
+            and sender_balance_before >= amount_value * 5
+            and sender_drain_ratio <= 0.25
+        )
 
         if msg.nameDest and msg.step is not None and not is_merchant:
             # ── Layer A: Buffer-based mule detection ──────────────────────────
@@ -180,15 +274,19 @@ class PatternDetectionAgent(BaseAgent):
 
             if n_buffer_senders >= 3:
                 avg_amt = sum(m.amount or 0 for m in recent_window) / len(recent_window)
-                is_micro = avg_amt < 500  # Micro-structuring threshold
+                is_micro = avg_amt < MULE_MICRO_AMOUNT_THRESHOLD  # Micro-structuring threshold
                 
                 # Behavioral Check: Dormant-to-Active or Pass-Through
                 # If the destination account had 0 balance before this, or has very low balance relative to flow
-                is_dormant_active = msg.oldbalanceDest == 0
+                is_dormant_active = is_receiver_dormant
                 
                 mule_confidence = min(1.0, 0.50 + 0.10 * (n_buffer_senders - 3))
                 
-                if is_micro:
+                if current_is_micro and not is_dormant_active:
+                    # A single small UPI transfer to an already-active receiver
+                    # must not inherit the receiver's old convergence history.
+                    mule_confidence = 0.0
+                elif is_micro:
                     # Contextual whitelist: Don't assume micro-structuring is fraud without downstream extraction proof
                     # unless it's a dormant account suddenly waking up.
                     if is_dormant_active:
@@ -232,12 +330,17 @@ class PatternDetectionAgent(BaseAgent):
 
                 if db_unique_senders >= 3:
                     avg_amt = db_total_amount / max(1, db_txn_count)
-                    is_micro = avg_amt < 500
-                    is_dormant_active = msg.oldbalanceDest == 0
+                    is_micro = avg_amt < MULE_MICRO_AMOUNT_THRESHOLD
+                    is_dormant_active = is_receiver_dormant
 
                     db_mule_conf = min(1.0, 0.50 + 0.08 * (db_unique_senders - 3))
                     
-                    if is_micro:
+                    if current_is_micro and not is_dormant_active:
+                        # Historical receiver convergence can explain why a
+                        # receiver deserves monitoring, but it should not
+                        # block a new user's tiny payment on its own.
+                        db_mule_conf = 0.0
+                    elif is_micro:
                         if is_dormant_active:
                             db_mule_conf = min(1.0, db_mule_conf + 0.15)
                         else:
@@ -249,7 +352,7 @@ class PatternDetectionAgent(BaseAgent):
                             db_mule_conf = min(0.55, db_mule_conf)
 
                     # Boost if cumulative amount is significant
-                    if db_total_amount > 20000:
+                    if db_total_amount > MULE_LARGE_TOTAL_THRESHOLD and not (current_is_micro and not is_dormant_active):
                         db_mule_conf = min(1.0, db_mule_conf + 0.10)
                         
                     if db_mule_conf > confidence and db_mule_conf >= 0.50:
@@ -296,7 +399,7 @@ class PatternDetectionAgent(BaseAgent):
                             pass
                             
                         # Micro-structuring check
-                        is_micro = msg.amount is not None and msg.amount < 500
+                        is_micro = msg.amount is not None and msg.amount < MULE_MICRO_AMOUNT_THRESHOLD
                         if pass_through_bonus == 0.0:
                             if is_micro:
                                 # Contextual Whitelist: It's a birthday/split bill.
@@ -365,9 +468,9 @@ class PatternDetectionAgent(BaseAgent):
         # RULE 6: DORMANT_ACCOUNT_HIJACK
         # ══════════════════════════════════════════════════════════════════════
         # If a dormant account receives a massive sum, OR suddenly empties out
-        is_large = msg.amount is not None and msg.amount >= 10000
+        is_large = msg.amount is not None and msg.amount >= DORMANT_LARGE_AMOUNT_THRESHOLD
         if is_large:
-            if msg.oldbalanceDest == 0 and not is_merchant:
+            if is_receiver_dormant and not is_merchant and not looks_like_funded_disbursement:
                 # Sudden massive inbound to a dormant user account
                 dorm_conf = 0.85
                 if dorm_conf > confidence:
@@ -375,6 +478,11 @@ class PatternDetectionAgent(BaseAgent):
                     confidence = dorm_conf
                     logger.info("[%s] ✓ DORMANT_HIJACK (Inbound): %s received %.0f to 0-balance (conf=%.2f)",
                                 self.name, msg.nameDest, msg.amount, dorm_conf)
+            elif is_receiver_dormant and looks_like_funded_disbursement:
+                logger.info(
+                    "[%s] Dormant inbound treated as funded disbursement: sender=%s receiver=%s amount=%.0f",
+                    self.name, msg.nameOrig, msg.nameDest, msg.amount or 0.0
+                )
             
             if msg.oldbalanceOrg > 0 and msg.amount >= 0.90 * msg.oldbalanceOrg:
                 # Almost completely emptying an account with a single large transfer (cashout)
@@ -384,6 +492,25 @@ class PatternDetectionAgent(BaseAgent):
                     confidence = dorm_conf
                     logger.info("[%s] ✓ DORMANT_HIJACK (Cashout): %s emptying %.0f (conf=%.2f)",
                                 self.name, msg.nameOrig, msg.amount, dorm_conf)
+
+        # ══════════════════════════════════════════════════════════════════════
+        # RULE 7: P2P_SCAM_SWEEP_DRAINAGE (Account Takeover / Mule drainage)
+        # ══════════════════════════════════════════════════════════════════════
+        # If a sender is rapidly transferring high-value sums to 3 or more unique
+        # destinations in P2P transfers (not merchant), they are likely compromised
+        # and being swept/drained by a scam/hacker.
+        if msg.nameOrig and not is_merchant and db_unique_receivers >= 3:
+            # Check if this is a high-value sweep (either current amount >= 5000 or total >= 15000)
+            is_high_value_sweep = (msg.amount is not None and msg.amount >= 5000.0) or db_total_amount >= 15000.0
+            if is_high_value_sweep:
+                sweep_conf = 0.95
+                if sweep_conf > confidence:
+                    pattern = PatternType.ACCOUNT_TAKEOVER
+                    confidence = sweep_conf
+                    logger.warning(
+                        "[%s] ✓ P2P_SCAM_SWEEP_DRAINAGE: user=%s is draining funds to %d unique receivers (total=₹%.2f, conf=%.2f)",
+                        self.name, msg.nameOrig, db_unique_receivers, db_total_amount, sweep_conf
+                    )
 
         # ══════════════════════════════════════════════════════════════════════
         # RULE 2: ACCOUNT_TAKEOVER — Novel IP/device for known user
@@ -402,7 +529,7 @@ class PatternDetectionAgent(BaseAgent):
                 self.name, msg.nameOrig, has_history, new_ip, new_device, fraud_score
             )
 
-            if has_history and (new_ip or new_device) and fraud_score >= 0.7:
+            if has_history and (new_ip or new_device) and fraud_score >= ATO_FRAUD_SCORE_THRESHOLD:
                 ato_confidence = min(1.0, 0.5 + 0.5 * fraud_score)
                 if ato_confidence > confidence:
                     pattern = PatternType.ACCOUNT_TAKEOVER
@@ -426,54 +553,50 @@ class PatternDetectionAgent(BaseAgent):
             count_same_origin = sum(1 for m in recent_history if m.nameOrig == msg.nameOrig)
 
             logger.debug(
-                "[%s] VELOCITY buffer check: user=%s, occurrences_in_last_75=%d (need >=6)",
-                self.name, msg.nameOrig, count_same_origin
+                "[%s] VELOCITY buffer check: user=%s, occurrences_in_last_75=%d (need >=%d)",
+                self.name, msg.nameOrig, count_same_origin, VELOCITY_SPIKE_COUNT_THRESHOLD
             )
 
-            if count_same_origin >= 6:
-                velocity_confidence = min(1.0, 0.62 + 0.04 * (count_same_origin - 6))
+            if count_same_origin >= VELOCITY_SPIKE_COUNT_THRESHOLD:
+                velocity_confidence = min(1.0, 0.62 + 0.04 * (count_same_origin - VELOCITY_SPIKE_COUNT_THRESHOLD))
                 if velocity_confidence > confidence:
-                    pattern = PatternType.VELOCITY_SPIKE
-                    confidence = velocity_confidence
-                    logger.info(
-                        "[%s] VELOCITY_SPIKE (buffer): user=%s, %d txns in last 75 (conf=%.2f)",
-                        self.name, msg.nameOrig, count_same_origin, velocity_confidence
-                    )
+                    if pattern in (PatternType.MULE_NETWORK, PatternType.ACCOUNT_TAKEOVER, PatternType.CIRCULAR_FLOW) and confidence >= 0.60:
+                        pass
+                    else:
+                        pattern = PatternType.VELOCITY_SPIKE
+                        confidence = velocity_confidence
+                        logger.info(
+                            "[%s] VELOCITY_SPIKE (buffer): user=%s, %d txns in last 75 (conf=%.2f)",
+                            self.name, msg.nameOrig, count_same_origin, velocity_confidence
+                        )
 
             # ── Layer B: DB-backed time-based velocity ────────────────────────
             # Queries the transaction table for sender activity in last 10 min.
             # Key advantage: detects inter-transaction timing, not just count.
-            try:
-                import database as db
-                db_velocity = db.get_sender_time_velocity(
-                    msg.nameOrig, lookback_minutes=10
-                )
-                db_txn_count = db_velocity["txn_count"]
-                db_avg_gap = db_velocity["avg_inter_txn_seconds"]
-                db_min_gap = db_velocity["min_inter_txn_seconds"]
-                db_unique_receivers = db_velocity["unique_receivers"]
+            logger.debug(
+                "[%s] VELOCITY DB check: user=%s, txn_count=%d, "
+                "avg_gap=%.1fs, min_gap=%.1fs, unique_receivers=%d",
+                self.name, msg.nameOrig, db_txn_count,
+                db_avg_gap if db_avg_gap != float("inf") else -1,
+                db_min_gap if db_min_gap != float("inf") else -1,
+                db_unique_receivers
+            )
 
-                logger.debug(
-                    "[%s] VELOCITY DB check: user=%s, txn_count=%d, "
-                    "avg_gap=%.1fs, min_gap=%.1fs, unique_receivers=%d",
-                    self.name, msg.nameOrig, db_txn_count,
-                    db_avg_gap if db_avg_gap != float("inf") else -1,
-                    db_min_gap if db_min_gap != float("inf") else -1,
-                    db_unique_receivers
-                )
-
-                # Trigger if ≥5 txns in 10 minutes
-                if db_txn_count >= 5:
-                    db_vel_conf = min(1.0, 0.65 + 0.05 * (db_txn_count - 5))
-                    # Boost if inter-txn gap is very small (rapid-fire)
-                    if db_avg_gap != float("inf") and db_avg_gap < 30:
-                        db_vel_conf = min(1.0, db_vel_conf + 0.15)
-                    elif db_avg_gap != float("inf") and db_avg_gap < 60:
-                        db_vel_conf = min(1.0, db_vel_conf + 0.10)
-                    # Boost if sending to many unique receivers (smurfing pattern)
-                    if db_unique_receivers >= 3:
-                        db_vel_conf = min(1.0, db_vel_conf + 0.05)
-                    if db_vel_conf > confidence:
+            # Trigger if ≥5 txns in 10 minutes
+            if db_txn_count >= 5:
+                db_vel_conf = min(1.0, 0.65 + 0.05 * (db_txn_count - 5))
+                # Boost if inter-txn gap is very small (rapid-fire)
+                if db_avg_gap != float("inf") and db_avg_gap < 30:
+                    db_vel_conf = min(1.0, db_vel_conf + 0.15)
+                elif db_avg_gap != float("inf") and db_avg_gap < 60:
+                    db_vel_conf = min(1.0, db_vel_conf + 0.10)
+                # Boost if sending to many unique receivers (smurfing pattern)
+                if db_unique_receivers >= 3:
+                    db_vel_conf = min(1.0, db_vel_conf + 0.05)
+                if db_vel_conf > confidence:
+                    if pattern in (PatternType.MULE_NETWORK, PatternType.ACCOUNT_TAKEOVER, PatternType.CIRCULAR_FLOW) and confidence >= 0.60:
+                        pass
+                    else:
                         pattern = PatternType.VELOCITY_SPIKE
                         confidence = db_vel_conf
                         logger.info(
@@ -483,18 +606,19 @@ class PatternDetectionAgent(BaseAgent):
                             db_vel_conf
                         )
 
-                # Also trigger on extremely rapid bursts (≥3 txns with <10s gaps)
-                elif db_txn_count >= 3 and db_min_gap != float("inf") and db_min_gap < 10:
-                    burst_conf = min(1.0, 0.70 + 0.10 * (3 - db_min_gap))
-                    if burst_conf > confidence:
+            # Also trigger on extremely rapid bursts (≥3 txns with <10s gaps)
+            elif db_txn_count >= 3 and db_min_gap != float("inf") and db_min_gap < 10:
+                burst_conf = min(1.0, 0.70 + 0.10 * (3 - db_min_gap))
+                if burst_conf > confidence:
+                    if pattern in (PatternType.MULE_NETWORK, PatternType.ACCOUNT_TAKEOVER, PatternType.CIRCULAR_FLOW) and confidence >= 0.60:
+                        pass
+                    else:
                         pattern = PatternType.VELOCITY_SPIKE
                         confidence = burst_conf
                         logger.info(
                             "[%s] ✓ VELOCITY_SPIKE (DB burst): user=%s, min_gap=%.1fs (conf=%.2f)",
                             self.name, msg.nameOrig, db_min_gap, burst_conf
                         )
-            except Exception as exc:
-                logger.debug("[%s] DB velocity check failed: %s", self.name, exc)
 
             # ── Layer C: Redis real-time burst detection ──────────────────────
             if self._graph_cache and self._graph_cache.available:
@@ -517,25 +641,31 @@ class PatternDetectionAgent(BaseAgent):
                     if redis_burst >= 4:
                         redis_vel_conf = min(1.0, 0.70 + 0.08 * (redis_burst - 4))
                         if redis_vel_conf > confidence:
-                            pattern = PatternType.VELOCITY_SPIKE
-                            confidence = redis_vel_conf
-                            logger.info(
-                                "[%s] ✓ VELOCITY_SPIKE (Redis burst): user=%s, "
-                                "%d txns in 5min (conf=%.2f)",
-                                self.name, msg.nameOrig, redis_burst, redis_vel_conf
-                            )
+                            if pattern in (PatternType.MULE_NETWORK, PatternType.ACCOUNT_TAKEOVER, PatternType.CIRCULAR_FLOW) and confidence >= 0.60:
+                                pass
+                            else:
+                                pattern = PatternType.VELOCITY_SPIKE
+                                confidence = redis_vel_conf
+                                logger.info(
+                                    "[%s] ✓ VELOCITY_SPIKE (Redis burst): user=%s, "
+                                    "%d txns in 5min (conf=%.2f)",
+                                    self.name, msg.nameOrig, redis_burst, redis_vel_conf
+                                )
 
                     # Hourly volume: ≥10 txns in 1 hour
                     elif redis_txn_count >= 10:
                         redis_vel_conf = min(1.0, 0.65 + 0.05 * (redis_txn_count - 10))
                         if redis_vel_conf > confidence:
-                            pattern = PatternType.VELOCITY_SPIKE
-                            confidence = redis_vel_conf
-                            logger.info(
-                                "[%s] ✓ VELOCITY_SPIKE (Redis hourly): user=%s, "
-                                "%d txns in 1h (conf=%.2f)",
-                                self.name, msg.nameOrig, redis_txn_count, redis_vel_conf
-                            )
+                            if pattern in (PatternType.MULE_NETWORK, PatternType.ACCOUNT_TAKEOVER, PatternType.CIRCULAR_FLOW) and confidence >= 0.60:
+                                pass
+                            else:
+                                pattern = PatternType.VELOCITY_SPIKE
+                                confidence = redis_vel_conf
+                                logger.info(
+                                    "[%s] ✓ VELOCITY_SPIKE (Redis hourly): user=%s, "
+                                    "%d txns in 1h (conf=%.2f)",
+                                    self.name, msg.nameOrig, redis_txn_count, redis_vel_conf
+                                )
                 except Exception as exc:
                     logger.debug("[%s] Redis velocity check failed: %s", self.name, exc)
 
@@ -547,6 +677,43 @@ class PatternDetectionAgent(BaseAgent):
                     pattern = PatternType.NONE
                     confidence = 0.0
                 logger.info("[%s] Merchant-safe velocity applied to %s. New conf=%.2f", self.name, msg.nameOrig, confidence)
+
+            # Apply Low-Value Exemption to avoid false positives on small peer-to-peer transfers (e.g., split bills, minor transfers)
+            if pattern == PatternType.VELOCITY_SPIKE and msg.amount is not None and msg.amount < VELOCITY_MIN_AMOUNT_THRESHOLD:
+                # Bypass low-value exemption if the user is sending to multiple unique customer receivers (bot probe/velocity script pattern)
+                recent_history = list(self.buffer)[-WINDOW_SIZE:]
+                unique_customer_receivers = set()
+                for m in recent_history:
+                    if m.nameOrig == msg.nameOrig and m.nameDest:
+                        is_dest_merchant = False
+                        try:
+                            import database as db
+                            dest_user = db.get_user_by_id(m.nameDest)
+                            if dest_user and dest_user.get("user_type") == "MERCHANT":
+                                is_dest_merchant = True
+                        except Exception:
+                            is_dest_merchant = m.nameDest.startswith("M")
+                        if not is_dest_merchant:
+                            unique_customer_receivers.add(m.nameDest)
+
+                redis_unique_receivers = 0
+                if self._graph_cache and self._graph_cache.available:
+                    try:
+                        redis_stats = self._graph_cache.get_sender_outbound_stats(msg.nameOrig, window_seconds=3600)
+                        redis_unique_receivers = redis_stats.get("unique_receivers", 0)
+                    except Exception:
+                        pass
+
+                if len(unique_customer_receivers) >= 3 or redis_unique_receivers >= 4:
+                    logger.info("[%s] Low-value velocity exemption BYPASSED for %s due to rapid counterparty burst (receivers=%d, redis_receivers=%d)",
+                                self.name, msg.nameOrig, len(unique_customer_receivers), redis_unique_receivers)
+                else:
+                    confidence = max(0.0, confidence - 0.40)
+                    confidence = min(0.50, confidence)
+                    if confidence < 0.50:
+                        pattern = PatternType.NONE
+                        confidence = 0.0
+                    logger.info("[%s] Low-value velocity exemption applied to %s for amount ₹%.2f. New conf=%.2f", self.name, msg.nameOrig, msg.amount, confidence)
 
         # ══════════════════════════════════════════════════════════════════════
         # RULE 4: CIRCULAR_FLOW — Ping-Pong or Triangle loops via Redis

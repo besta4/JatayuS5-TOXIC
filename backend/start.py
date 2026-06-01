@@ -177,6 +177,8 @@ def start_server(name, command, port):
     return process
 
 def main():
+    load_environment()
+
     print("=" * 80)
     print("🦅 JATAYU - Autonomous Fraud Detection & Response Network")
     print("=" * 80)
@@ -213,9 +215,15 @@ def main():
     redis_available = False
     try:
         import redis as _redis
-        r = _redis.Redis(host='localhost', port=6379, socket_timeout=2)
+        redis_url = os.getenv("JATAYU_REDIS_URL", "redis://localhost:6379/0")
+        r = _redis.Redis.from_url(
+            redis_url,
+            socket_timeout=2,
+            socket_connect_timeout=2,
+        )
         r.ping()
-        print("  ✓ Redis is running on localhost:6379")
+        safe_redis_url = redis_url.split("@", 1)[-1] if "@" in redis_url else redis_url
+        print(f"  ✓ Redis is running ({safe_redis_url})")
         print("     Dynamic graph embeddings: ENABLED")
         redis_available = True
     except Exception:

@@ -282,6 +282,63 @@
         border-radius: 9999px;
         transition: width 0.55s ease;
       }
+
+      /* ── Responsive overrides ─────────────────────────────────────────────── */
+      @media (max-width: 768px) {
+        /* Graph container: shorter on mobile */
+        .glass-graph-responsive {
+          height: 340px !important;
+        }
+
+        /* Processing card: less padding on mobile */
+        #view-processing .glass {
+          padding: 1.5rem;
+        }
+
+        /* Agent accordion open state: shorter on mobile */
+        .agent-accordion-body.open {
+          max-height: 260px;
+        }
+
+        .agent-accordion-scroll {
+          max-height: 248px;
+        }
+
+        /* Floating nav: adjust for mobile */
+        #floating-nav {
+          bottom: 0.75rem !important;
+        }
+
+        /* Dashboard view: more bottom padding for nav */
+        #view-dashboard {
+          padding-bottom: 5rem !important;
+        }
+
+        /* Header bar: allow wrapping */
+        #view-dashboard > .flex.items-center.justify-between {
+          flex-wrap: wrap;
+          gap: 0.5rem;
+        }
+
+        /* Intelligence tab header: stack on mobile */
+        #tab-intelligence > .flex.items-center.justify-between {
+          flex-direction: column;
+          align-items: flex-start;
+          gap: 0.5rem;
+        }
+      }
+
+      @media (max-width: 480px) {
+        /* Graph container: even shorter on small mobile */
+        .glass-graph-responsive {
+          height: 260px !important;
+        }
+
+        /* Metric card text: slightly smaller */
+        #tab-dashboard .text-2xl {
+          font-size: 1.25rem;
+        }
+      }
     </style>
   </head>
 
@@ -332,10 +389,10 @@
       </div>
 
       <!-- Dropzone card -->
-      <div class="glass w-full max-w-xl p-10">
+      <div class="glass w-full max-w-xl p-6 md:p-10">
         <div
           id="dropzone"
-          class="border-2 border-dashed border-white/20 rounded-xl p-14 flex flex-col items-center justify-center gap-4 cursor-pointer hover:border-white/30 transition-colors"
+          class="border-2 border-dashed border-white/20 rounded-xl p-8 md:p-14 flex flex-col items-center justify-center gap-4 cursor-pointer hover:border-white/30 transition-colors"
         >
           <div class="relative">
             <div
@@ -511,7 +568,7 @@
         </div>
 
         <!-- Agent stage indicators -->
-        <div class="grid grid-cols-5 gap-2 w-full">
+        <div class="grid grid-cols-5 gap-1 sm:gap-2 w-full">
           <div class="flex flex-col items-center gap-1">
             <div
               class="w-8 h-8 glass rounded-lg flex items-center justify-center"
@@ -829,7 +886,7 @@
             >
           </div>
         </div>
-        <div class="glass overflow-hidden" style="height: 520px">
+        <div class="glass glass-graph-responsive overflow-hidden" style="height: 520px">
           <div id="graph-container" class="w-full h-full"></div>
         </div>
         <p class="text-slate-500 text-xs mt-2 text-center">

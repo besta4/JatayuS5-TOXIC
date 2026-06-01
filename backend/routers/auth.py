@@ -16,7 +16,7 @@ from auth.password import hash_password, verify_password
 from auth.jwt_handler import (
     create_access_token, create_refresh_token, verify_refresh_token, get_token_hash
 )
-from auth.dependencies import get_current_user, get_client_info
+from auth.dependencies import get_current_user, get_current_user_including_restricted, get_client_info
 from auth.models import TokenData
 from database import UserType, AccountType
 
@@ -289,7 +289,7 @@ async def refresh_token(body: RefreshTokenRequest):
 
 
 @router.post("/logout")
-async def logout(user: TokenData = Depends(get_current_user)):
+async def logout(user: TokenData = Depends(get_current_user_including_restricted)):
     """
     Logout and invalidate current session.
     """

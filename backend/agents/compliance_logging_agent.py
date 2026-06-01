@@ -127,6 +127,7 @@ class ComplianceLoggingAgent(BaseAgent):
             "fraud_label":      msg.fraud_label,
             "top_features":     msg.top_features,
             "model_version":    msg.model_version,
+            "dataset_influence": msg.dataset_influence,
 
             # ── Agent 2: Pattern Detection ────────────────────────────────────
             "pattern_type":         msg.pattern_type.value

@@ -41,6 +41,15 @@ def _get_orchestrator():
     return _ORCHESTRATOR_INSTANCE
 
 
+def _transaction_status_from_action(action: str) -> TransactionStatus:
+    """Map fraud pipeline actions to transaction lifecycle statuses."""
+    if action == "BLOCK":
+        return TransactionStatus.BLOCKED
+    if action == "HOLD":
+        return TransactionStatus.HELD
+    return TransactionStatus.COMPLETED
+
+
 _FLOW_STATE_LOCK = Lock()
 _FLOW_STATE_TTL_SECONDS = 180
 _FLOW_STATES: dict[str, dict] = {}
@@ -341,6 +350,7 @@ async def create_transaction(
         txn_type=txn_type.value,
         old_balance=old_balance,
         new_balance=new_balance,
+        old_balance_receiver=receiver_account["balance"],
         ip_address=client_info["ip_address"],
         device_id=client_info["device_id"],
         step=datetime.now(timezone.utc).hour + (datetime.now(timezone.utc).day * 24),
@@ -375,25 +385,33 @@ async def create_transaction(
         import logging as _log
         _txn_logger = _log.getLogger(__name__)
 
-        # ── Auto-suspend the CURRENT sender ──
-        _txn_logger.warning(
-            "[AUTO-SUSPEND] Suspending sender %s — transaction %s BLOCKED (score=%.2f, pattern=%s)",
-            user.user_id, transaction_id, fraud_result["fraud_score"],
-            fraud_result.get("pattern_type", "NONE")
-        )
-        db.update_user(user.user_id, account_status="SUSPENDED")
-
-        # ── MULE_NETWORK: suspend the collector AND all prior senders to this collector ──
-        # This ensures the ENTIRE mule ring is shut down, not just the current transaction.
-        if fraud_result.get("pattern_type") == "MULE_NETWORK":
+        # ── Dynamic pipeline-driven suspensions ──
+        block_pattern = fraud_result.get("pattern_type", "NONE")
+        if fraud_result.get("suspend_sender"):
             _txn_logger.warning(
-                "[AUTO-SUSPEND] MULE_NETWORK detected — suspending collector %s and all network participants",
-                resolved_receiver_id
+                "[AUTO-SUSPEND] Suspending sender %s — transaction %s BLOCKED (score=%.2f, pattern=%s)",
+                user.user_id, transaction_id, fraud_result["fraud_score"],
+                block_pattern
             )
-            # Suspend the mule collector
+            db.update_user(user.user_id, account_status="SUSPENDED")
+        else:
+            _txn_logger.warning(
+                "[BLOCK-ONLY] Transaction %s BLOCKED due to %s for sender %s, but account remains ACTIVE",
+                transaction_id, block_pattern, user.user_id
+            )
+
+        if fraud_result.get("suspend_receiver"):
+            _txn_logger.warning(
+                "[AUTO-SUSPEND] Suspending receiver %s — transaction %s BLOCKED (pattern=%s)",
+                resolved_receiver_id, transaction_id, block_pattern
+            )
             db.update_user(resolved_receiver_id, account_status="SUSPENDED")
 
-            # Query DB for ALL senders who previously transferred to this collector
+        if fraud_result.get("suspend_mule_network"):
+            _txn_logger.warning(
+                "[AUTO-SUSPEND] Suspending mule network participants for collector %s",
+                resolved_receiver_id
+            )
             mule_senders = db.get_mule_network_senders(resolved_receiver_id)
             for mule_sender_id in mule_senders:
                 if mule_sender_id != user.user_id:  # already handled above
@@ -404,14 +422,6 @@ async def create_transaction(
                             mule_sender_id, resolved_receiver_id
                         )
                         db.update_user(mule_sender_id, account_status="SUSPENDED")
-
-        # ── VELOCITY_SPIKE: suspend the sender (rapid fraudulent transactions) ──
-        elif fraud_result.get("pattern_type") == "VELOCITY_SPIKE":
-            _txn_logger.warning(
-                "[AUTO-SUSPEND] VELOCITY_SPIKE confirmed — sender %s already suspended",
-                user.user_id
-            )
-            # Sender already suspended above; no additional action needed
 
     elif fraud_result["action_taken"] == "HOLD":
         final_status = TransactionStatus.HELD
@@ -440,7 +450,9 @@ async def create_transaction(
     should_str, str_reason = db.should_generate_str(
         fraud_result["fraud_score"],
         fraud_result["action_taken"],
-        user.user_id
+        user.user_id,
+        pattern_type=fraud_result.get("pattern_type"),
+        risk_level=fraud_result.get("risk_level"),
     )
     if should_str:
         db.create_compliance_report(
@@ -472,6 +484,9 @@ async def create_transaction(
         completed_at=datetime.now(timezone.utc).isoformat() if final_status == TransactionStatus.COMPLETED else None,
         fraud_check={
             "fraud_score": fraud_result["fraud_score"],
+            "model_version": fraud_result.get("model_version"),
+            "top_features": fraud_result.get("top_features", []),
+            "dataset_influence": fraud_result.get("dataset_influence", {}),
             "risk_level": fraud_result["risk_level"],
             "action_taken": fraud_result["action_taken"],
             "pattern_type": fraud_result.get("pattern_type", "NONE"),
@@ -590,6 +605,7 @@ async def verify_otp_and_complete(
         txn_type=txn_type.value,
         old_balance=old_balance,
         new_balance=new_balance,
+        old_balance_receiver=receiver_account["balance"],
         ip_address=client_info["ip_address"],
         device_id=client_info["device_id"],
         step=step,
@@ -613,35 +629,48 @@ async def verify_otp_and_complete(
     )
     
     # Execute action based on fraud result
-    final_status = TransactionStatus(fraud_result["action_taken"])
-    
+    final_status = _transaction_status_from_action(fraud_result["action_taken"])
+    new_receiver_balance = receiver_account["balance"]
+
     if final_status == TransactionStatus.COMPLETED:
-        db.credit_balance(receiver_account["account_id"], txn_data["amount"])
-        db.update_transaction_status(
-            transaction_id, final_status,
-            new_balance_receiver=receiver_account["balance"] + txn_data["amount"]
-        )
+        _, new_receiver_balance = db.credit_balance(receiver_account["account_id"], txn_data["amount"])
+        db.complete_transaction(transaction_id, new_receiver_balance)
+        db.update_velocity(user.user_id, txn_data["amount"])
+        if not txn_data["receiver_id"].startswith("M"):
+            db.update_payee_stats(user.user_id, txn_data["receiver_id"], txn_data["amount"])
     elif final_status == TransactionStatus.BLOCKED:
         db.credit_balance(sender_account["account_id"], txn_data["amount"])  # Refund
         db.update_transaction_status(transaction_id, final_status)
 
-        # ── Auto-suspend sender on BLOCK (OTP path) ──
+        # ── Dynamic pipeline-driven suspensions (OTP path) ──
         import logging as _log
         _otp_logger = _log.getLogger(__name__)
-        _otp_logger.warning(
-            "[AUTO-SUSPEND] Suspending sender %s — transaction %s BLOCKED (OTP path)",
-            user.user_id, transaction_id
-        )
-        db.update_user(user.user_id, account_status="SUSPENDED")
+        block_pattern = fraud_result.get("pattern_type", "NONE")
 
-        if fraud_result.get("pattern_type") == "MULE_NETWORK":
+        if fraud_result.get("suspend_sender"):
             _otp_logger.warning(
-                "[AUTO-SUSPEND] MULE_NETWORK (OTP path) — suspending collector %s and all participants",
-                txn_data["receiver_id"]
+                "[AUTO-SUSPEND] Suspending sender %s — transaction %s BLOCKED (OTP path, pattern=%s)",
+                user.user_id, transaction_id, block_pattern
+            )
+            db.update_user(user.user_id, account_status="SUSPENDED")
+        else:
+            _otp_logger.warning(
+                "[BLOCK-ONLY] Transaction %s BLOCKED due to %s (OTP path) for sender %s, but account remains ACTIVE",
+                transaction_id, block_pattern, user.user_id
+            )
+
+        if fraud_result.get("suspend_receiver"):
+            _otp_logger.warning(
+                "[AUTO-SUSPEND] Suspending receiver %s — transaction %s BLOCKED (OTP path, pattern=%s)",
+                txn_data["receiver_id"], transaction_id, block_pattern
             )
             db.update_user(txn_data["receiver_id"], account_status="SUSPENDED")
 
-            # Suspend ALL prior senders to this collector from DB
+        if fraud_result.get("suspend_mule_network"):
+            _otp_logger.warning(
+                "[AUTO-SUSPEND] Suspending mule network participants for collector %s (OTP path)",
+                txn_data["receiver_id"]
+            )
             mule_senders = db.get_mule_network_senders(txn_data["receiver_id"])
             for mule_sender_id in mule_senders:
                 if mule_sender_id != user.user_id:
@@ -654,6 +683,31 @@ async def verify_otp_and_complete(
                         db.update_user(mule_sender_id, account_status="SUSPENDED")
     else:  # HELD
         db.update_transaction_status(transaction_id, final_status)
+
+    should_str, str_reason = db.should_generate_str(
+        fraud_result["fraud_score"],
+        fraud_result["action_taken"],
+        user.user_id,
+        pattern_type=fraud_result.get("pattern_type"),
+        risk_level=fraud_result.get("risk_level"),
+    )
+    if should_str:
+        db.create_compliance_report(
+            report_type="STR",
+            trigger_reason=str_reason,
+            transaction_id=transaction_id,
+            user_id=user.user_id,
+            amount=txn_data["amount"]
+        )
+
+    if db.should_generate_ctr(txn_type.value, txn_data["amount"]):
+        db.create_compliance_report(
+            report_type="CTR",
+            trigger_reason="Cash transaction >= 10 lakh",
+            transaction_id=transaction_id,
+            user_id=user.user_id,
+            amount=txn_data["amount"]
+        )
     
     response_payload = TransactionResponse(
         transaction_id=transaction_id,
@@ -667,6 +721,9 @@ async def verify_otp_and_complete(
         completed_at=datetime.now(timezone.utc).isoformat() if final_status == TransactionStatus.COMPLETED else None,
         fraud_check={
             "fraud_score": fraud_result["fraud_score"],
+            "model_version": fraud_result.get("model_version"),
+            "top_features": fraud_result.get("top_features", []),
+            "dataset_influence": fraud_result.get("dataset_influence", {}),
             "risk_level": fraud_result["risk_level"],
             "action_taken": fraud_result["action_taken"],
             "pattern_type": fraud_result.get("pattern_type", "NONE"),
@@ -698,6 +755,7 @@ def _run_fraud_pipeline_sync(
     txn_type: str,
     old_balance: float,
     new_balance: float,
+    old_balance_receiver: float,
     ip_address: str,
     device_id: str,
     step: int,
@@ -723,11 +781,12 @@ def _run_fraud_pipeline_sync(
             nameDest=receiver_id,
             oldbalanceOrg=old_balance,
             newbalanceOrig=new_balance,
-            oldbalanceDest=0.0,  # Will be filled
-            newbalanceDest=amount,
+            oldbalanceDest=old_balance_receiver,
+            newbalanceDest=old_balance_receiver + amount,
             ip_address=ip_address,
             device_id=device_id,
         )
+        msg.pipeline_start_ms = time.time() * 1000
 
         # Use singleton orchestrator so rolling buffer persists across requests
         orchestrator = _get_orchestrator()
@@ -742,12 +801,15 @@ def _run_fraud_pipeline_sync(
         result = orchestrator.agent1.process(msg)
         if flow_id:
             a1 = result.pipeline_metadata[-1] if result.pipeline_metadata else None
+            influence = result.dataset_influence or {}
+            ratio = influence.get("threshold_ratio")
+            ratio_text = f" ({float(ratio):.2f}x trained threshold)" if ratio is not None else ""
             _update_flow_step(
                 flow_id,
                 "agent1",
                 status="completed",
                 latency_ms=a1.latency_ms if a1 else None,
-                summary=f"Fraud score {((result.fraud_score or 0.0) * 100):.2f}%",
+                summary=f"Fraud score {((result.fraud_score or 0.0) * 100):.2f}%{ratio_text}",
                 error=a1.error if a1 else None,
             )
             _flow_step_pause()
@@ -785,10 +847,42 @@ def _run_fraud_pipeline_sync(
             )
             _flow_step_pause()
 
+        if graph_cache and graph_cache.available:
+            try:
+                from agents.models import PatternType
+
+                pat = result.pattern_type
+                conf = result.pattern_confidence or 0.0
+                if pat and pat != PatternType.NONE and conf > 0.0:
+                    if pat == PatternType.VELOCITY_SPIKE:
+                        tier = "velocity"
+                    else:
+                        tier = "pattern"
+
+                    if result.nameOrig:
+                        graph_cache.record_risk_score(result.nameOrig, tier, conf, accumulate=True)
+                    if result.nameDest and not result.nameDest.startswith("M"):
+                        graph_cache.record_risk_score(result.nameDest, tier, conf * 0.5, accumulate=True)
+
+                    if pat == PatternType.MULE_NETWORK and conf >= 0.70:
+                        if result.nameOrig:
+                            graph_cache.record_risk_score(result.nameOrig, "network", conf * 0.6, accumulate=True)
+                        if result.nameDest and not result.nameDest.startswith("M"):
+                            graph_cache.record_risk_score(result.nameDest, "network", conf * 0.4, accumulate=True)
+            except Exception:
+                pass
+
         account_hints = {
             "is_new_device": orchestrator.agent2.is_new_device(result.nameOrig, result.device_id),
             "is_new_ip": orchestrator.agent2.is_new_ip(result.nameOrig, result.ip_address),
         }
+
+        if graph_cache and graph_cache.available and result.nameOrig:
+            try:
+                account_hints["historical_risk"] = graph_cache.get_composite_risk(result.nameOrig)
+                account_hints["decayed_risk_tiers"] = graph_cache.get_decayed_risk(result.nameOrig)
+            except Exception:
+                account_hints["historical_risk"] = 0.0
 
         if flow_id:
             _update_flow_step(flow_id, "agent3", status="running")
@@ -842,6 +936,9 @@ def _run_fraud_pipeline_sync(
         output = {
             "fraud_score": result.fraud_score or 0.0,
             "fraud_label": result.fraud_label or False,
+            "top_features": result.top_features or [],
+            "model_version": result.model_version,
+            "dataset_influence": result.dataset_influence or {},
             "pattern_type": result.pattern_type.value if result.pattern_type else "NONE",
             # Ensure confidence is always a number (never None) so callers can display it
             "pattern_confidence": result.pattern_confidence if result.pattern_confidence is not None else 0.0,
@@ -850,6 +947,10 @@ def _run_fraud_pipeline_sync(
             "action_taken": result.action_taken.value if result.action_taken else "PASS",
             "explanation": result.explanation,
             "pattern_reasoning": result.pattern_reasoning,
+            "account_context": result.account_context or {},
+            "suspend_sender": result.suspend_sender,
+            "suspend_receiver": result.suspend_receiver,
+            "suspend_mule_network": result.suspend_mule_network,
         }
         if flow_id:
             _finalize_flow(flow_id, status="completed", final_result=output)
@@ -911,6 +1012,9 @@ def _run_fraud_pipeline_sync(
             "recommended_action": action,
             "action_taken": action,
             "explanation": f"Rule-based: score={fraud_score:.2f}",
+            "suspend_sender": action == "BLOCK" and pattern_type != "VELOCITY_SPIKE",
+            "suspend_receiver": action == "BLOCK" and pattern_type == "MULE_NETWORK",
+            "suspend_mule_network": action == "BLOCK" and pattern_type == "MULE_NETWORK",
         }
         if flow_id:
             _update_flow_step(flow_id, "agent1", status="error", error=str(e))
@@ -926,6 +1030,7 @@ async def run_fraud_pipeline(
     txn_type: str,
     old_balance: float,
     new_balance: float,
+    old_balance_receiver: float,
     ip_address: str,
     device_id: str,
     step: int,
@@ -942,6 +1047,7 @@ async def run_fraud_pipeline(
         txn_type,
         old_balance,
         new_balance,
+        old_balance_receiver,
         ip_address,
         device_id,
         step,

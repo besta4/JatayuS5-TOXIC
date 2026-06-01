@@ -198,13 +198,26 @@
       * {
         transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
       }
+
+      /* Responsive: mobile */
+      @media (max-width: 768px) {
+        .auth-card {
+          padding: 1.5rem;
+        }
+        .logo-mark {
+          width: 44px;
+        }
+        .logo-text {
+          font-size: 24px;
+        }
+      }
     </style>
   </head>
 
   <body
     class="min-h-screen flex flex-col items-center justify-center p-6 gap-0"
   >
-    <div class="auth-card p-10 w-full max-w-md">
+    <div class="auth-card p-6 md:p-10 w-full max-w-md">
       <!-- Logo -->
       <div class="text-center mb-10">
         <div class="flex items-center justify-center gap-3 mb-3">
@@ -306,7 +319,7 @@
           <div class="grid grid-cols-2 gap-3">
             <button
               type="button"
-              onclick="fillDemo('alice@demo.com', 'demo123')"
+              onclick="fillDemo('jatayu@demo.com', 'demo123')"
               class="demo-btn"
             >
               <div
@@ -328,7 +341,7 @@
                   font-size: 12px;
                 "
               >
-                alice@demo.com
+                jatayu@demo.com
               </div>
               <div
                 style="

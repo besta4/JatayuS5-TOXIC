@@ -132,13 +132,70 @@
       .card {
         animation: fadeIn 0.4s ease;
       }
+
+      /* ── Responsive: Mobile ── */
+      @media (max-width: 768px) {
+        .header-bar {
+          flex-wrap: wrap;
+          gap: 12px;
+          padding: 12px 16px;
+        }
+        .header-bar > div {
+          flex-wrap: wrap;
+          gap: 8px;
+        }
+        .header-bar .business-name-label {
+          display: none;
+        }
+        main {
+          padding: 16px !important;
+        }
+        .card {
+          padding: 16px !important;
+        }
+        /* Override inline 36px font-size on stat values */
+        #balance,
+        #today-revenue,
+        #today-count {
+          font-size: 26px !important;
+        }
+        .payment-item {
+          padding: 12px !important;
+        }
+        .payment-item .flex.items-center.gap-4 {
+          gap: 10px;
+        }
+        /* Let counterparty IDs/emails truncate instead of pushing layout */
+        .payment-item p {
+          word-break: break-all;
+        }
+      }
+
+      @media (max-width: 480px) {
+        .header-bar {
+          padding: 10px 12px;
+        }
+        #balance,
+        #today-revenue,
+        #today-count {
+          font-size: 22px !important;
+        }
+        .btn-primary {
+          padding: 8px 12px;
+          font-size: 13px !important;
+        }
+        .card {
+          padding: 12px !important;
+          border-radius: 12px;
+        }
+      }
     </style>
   </head>
 
-  <body class="min-h-screen">
+  <body class="min-h-screen" style="visibility: hidden;">
     <!-- Header -->
     <header
-      class="header-bar sticky top-0 z-50 px-6 py-4 flex items-center justify-between"
+      class="header-bar sticky top-0 z-50 px-4 md:px-6 py-3 md:py-4 flex items-center justify-between"
     >
       <div class="flex items-center gap-3">
         <img
@@ -150,7 +207,7 @@
           >Jatayu Merchant</span
         >
       </div>
-      <div class="flex items-center gap-4">
+      <div class="flex items-center gap-2 md:gap-4 flex-wrap">
         <button
           onclick="showSendPaymentModal()"
           class="btn-primary px-4 py-2 flex items-center gap-2"
@@ -160,6 +217,7 @@
         </button>
         <span
           id="business-name"
+          class="business-name-label hidden md:inline"
           style="font-size: 14px; color: rgba(255, 255, 255, 0.5)"
         ></span>
         <button
@@ -180,7 +238,7 @@
       </div>
     </header>
 
-    <main class="max-w-6xl mx-auto p-6 relative z-10">
+    <main class="max-w-6xl mx-auto p-4 md:p-6 relative z-10">
       <!-- Stats Grid -->
       <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
         <div class="card p-6">
@@ -472,35 +530,106 @@
     <script>
       let currentUser = null;
 
-      // Auth check
+      // Auth check — validate session against backend on every page load
       const token = localStorage.getItem("jatayu_token");
       if (!token) {
         window.location.href = "/login";
       } else {
-        currentUser = JSON.parse(localStorage.getItem("jatayu_user") || "{}");
-        if (currentUser.user_type === "ADMIN") {
-          window.location.href = "/admin";
-        } else if (currentUser.user_type === "CUSTOMER") {
-          window.location.href = "/dashboard";
+        (async () => {
+          try {
+            const meRes = await fetch("/auth/me", {
+              headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }
+            });
+            if (meRes.status === 401) {
+              localStorage.clear();
+              document.cookie = "jatayu_token=; Max-Age=0; Path=/; SameSite=Lax";
+              window.location.href = "/login";
+              return;
+            }
+            if (meRes.status === 403) {
+              // Account is suspended or blocked — redirect immediately
+              window.location.href = "/suspended";
+              return;
+            }
+            const meData = await meRes.json();
+            // Update cached user data with fresh server state
+            localStorage.setItem("jatayu_user", JSON.stringify(meData));
+            currentUser = meData;
+            // Route guard: redirect non-merchant users to their portal
+            if (currentUser.user_type === "ADMIN") {
+              window.location.href = "/admin";
+              return;
+            } else if (currentUser.user_type === "CUSTOMER") {
+              window.location.href = "/dashboard";
+              return;
+            }
+            document.getElementById("business-name").textContent =
+              currentUser.business_name ||
+              currentUser.display_name ||
+              currentUser.email;
+            loadAll();
+            document.body.style.visibility = "visible";
+          } catch (err) {
+            // Network error — fall back to cached data to avoid blank screen
+            console.error("Session validation failed:", err);
+            currentUser = JSON.parse(localStorage.getItem("jatayu_user") || "{}");
+            if (currentUser.user_type === "ADMIN") {
+              window.location.href = "/admin";
+              return;
+            } else if (currentUser.user_type === "CUSTOMER") {
+              window.location.href = "/dashboard";
+              return;
+            }
+            document.getElementById("business-name").textContent =
+              currentUser.business_name ||
+              currentUser.display_name ||
+              currentUser.email;
+            loadAll();
+            document.body.style.visibility = "visible";
+          }
+        })();
+      }
+
+      function getDeviceId() {
+        let deviceId = localStorage.getItem("jatayu_device_id");
+        if (!deviceId) {
+          deviceId = `device_${crypto.randomUUID ? crypto.randomUUID().replace(/-/g, "").slice(0, 16) : `${Date.now()}${Math.random().toString(36).slice(2, 10)}`}`;
+          localStorage.setItem("jatayu_device_id", deviceId);
         }
-        document.getElementById("business-name").textContent =
-          currentUser.business_name ||
-          currentUser.display_name ||
-          currentUser.email;
-        loadAll();
+        return deviceId;
+      }
+
+      function clearAuthStorage() {
+        const deviceId = localStorage.getItem("jatayu_device_id");
+        localStorage.clear();
+        if (deviceId) localStorage.setItem("jatayu_device_id", deviceId);
       }
 
       async function apiCall(endpoint, options = {}) {
         const headers = {
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
+          "X-Device-ID": getDeviceId(),
           ...options.headers,
         };
         const res = await fetch(endpoint, { ...options, headers });
         if (res.status === 401) {
-          localStorage.clear();
+          clearAuthStorage();
           document.cookie = "jatayu_token=; Max-Age=0; Path=/; SameSite=Lax";
           window.location.href = "/login";
+          return res;
+        }
+        if (res.status === 403) {
+          const cloned = res.clone();
+          try {
+            const body = await cloned.json();
+            const detail = (body.detail || "").toLowerCase();
+            if (detail.includes("suspended") || detail.includes("blocked")) {
+              document.body.style.visibility = "hidden";
+              window.location.href = "/suspended";
+              return res;
+            }
+          } catch (_) { /* non-JSON 403 — let caller handle */ }
         }
         return res;
       }
@@ -719,7 +848,7 @@
 
       function logout() {
         apiCall("/auth/logout", { method: "POST" }).finally(() => {
-          localStorage.clear();
+          clearAuthStorage();
           document.cookie = "jatayu_token=; Max-Age=0; Path=/; SameSite=Lax";
           window.location.href = "/login";
         });
@@ -831,21 +960,20 @@
         } catch (err) {
           const message = err?.message || "Transaction failed";
           errorEl.textContent = message;
-          errorEl.classList.remove("hidden");
 
-          if (
-            message.toLowerCase().includes("suspend") ||
-            message.toLowerCase().includes("block")
-          ) {
-            errorEl.appendChild(document.createElement("br"));
-            const link = document.createElement("a");
-            link.href = "/suspended";
-            link.textContent = "Contact Support to Resolve";
-            link.style.color = "#fbbf24";
-            link.style.textDecoration = "underline";
-            link.style.fontWeight = "600";
-            errorEl.appendChild(link);
+          const lowerMessage = message.toLowerCase();
+          const isRestricted =
+            lowerMessage.includes("account suspended") ||
+            lowerMessage.includes("account blocked") ||
+            lowerMessage.includes("account restricted") ||
+            lowerMessage.includes("contact support");
+
+          if (isRestricted) {
+            document.body.style.visibility = "hidden";
+            window.location.href = "/suspended";
+            return;
           }
+          errorEl.classList.remove("hidden");
         } finally {
           if (submitBtn) {
             submitBtn.disabled = false;

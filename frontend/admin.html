@@ -85,6 +85,12 @@
         border-bottom: 1px solid rgba(255, 255, 255, 0.06);
       }
 
+      .logo-mark {
+        width: 32px;
+        height: auto;
+        filter: drop-shadow(0 4px 14px rgba(62, 228, 255, 0.22));
+      }
+
       .btn-primary {
         background: #ffffff;
         color: #000000;
@@ -320,35 +326,62 @@
       .card {
         animation: fadeIn 0.4s ease;
       }
+
+      /* ── Responsive: Mobile ───────────────────────────────────── */
+      @media (max-width: 768px) {
+        .tab-btn {
+          padding: 10px 14px;
+          font-size: 12px;
+          white-space: nowrap;
+        }
+        #fraud-network {
+          height: 350px;
+        }
+        .tooltip {
+          max-width: 280px;
+          font-size: 12px;
+          padding: 10px 12px;
+        }
+        .card p[style*="font-size: 32px"] {
+          font-size: 24px !important;
+        }
+        .glass-card {
+          padding: 16px;
+        }
+        .header-bar {
+          padding: 12px 16px;
+        }
+        .header-bar span[style*="font-size: 17px"] {
+          font-size: 14px !important;
+        }
+      }
+
+      @media (max-width: 480px) {
+        .tab-btn {
+          padding: 8px 10px;
+          font-size: 11px;
+        }
+        #fraud-network {
+          height: 280px;
+        }
+        .card p[style*="font-size: 32px"] {
+          font-size: 20px !important;
+        }
+      }
     </style>
   </head>
 
   <body class="min-h-screen">
     <!-- Header -->
     <header
-      class="header-bar sticky top-0 z-50 px-6 py-4 flex items-center justify-between"
+      class="header-bar sticky top-0 z-50 px-4 md:px-6 py-3 md:py-4 flex items-center justify-between"
     >
       <div class="flex items-center gap-3">
-        <svg
-          width="32"
-          height="32"
-          viewBox="0 0 32 32"
-          fill="none"
-          xmlns="http://www.w3.org/2000/svg"
-        >
-          <rect
-            width="32"
-            height="32"
-            rx="8"
-            fill="white"
-            fill-opacity="0.08"
-          />
-          <path
-            d="M16 8L22 16L16 24L10 16L16 8Z"
-            fill="white"
-            fill-opacity="0.9"
-          />
-        </svg>
+        <img
+          src="/static/assets/jatayu-logo.png"
+          alt="Jatayu Logo"
+          class="logo-mark"
+        />
         <span style="font-size: 17px; font-weight: 600; letter-spacing: -0.3px"
           >Jatayu Admin</span
         >
@@ -375,7 +408,7 @@
       </div>
     </header>
 
-    <main class="max-w-7xl mx-auto p-6 relative z-10">
+    <main class="max-w-7xl mx-auto p-3 md:p-6 relative z-10">
       <!-- Stats Row -->
       <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
         <div class="card p-6">
@@ -471,7 +504,7 @@
       </div>
 
       <!-- Tabs -->
-      <div class="flex gap-6 mb-6 border-b border-slate-700">
+      <div class="flex gap-4 md:gap-6 mb-6 border-b border-slate-700 overflow-x-auto pb-px -mb-px" style="-webkit-overflow-scrolling: touch; scrollbar-width: none;">
         <button
           onclick="showTab('held')"
           id="tab-held"
@@ -1053,30 +1086,88 @@
     <script>
       let currentUser = null;
 
-      // Auth check
+      // Auth check — validate session against backend on every page load
       const token = localStorage.getItem("jatayu_token");
       if (!token) {
         window.location.href = "/login";
       } else {
-        currentUser = JSON.parse(localStorage.getItem("jatayu_user") || "{}");
-        if (currentUser.user_type !== "ADMIN") {
-          window.location.href =
-            currentUser.user_type === "MERCHANT" ? "/merchant" : "/dashboard";
+        (async () => {
+          try {
+            const meRes = await fetch("/auth/me", {
+              headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }
+            });
+            if (meRes.status === 401) {
+              localStorage.clear();
+              document.cookie = "jatayu_token=; Max-Age=0; Path=/; SameSite=Lax";
+              window.location.href = "/login";
+              return;
+            }
+            if (meRes.status === 403) {
+              window.location.href = "/suspended";
+              return;
+            }
+            const meData = await meRes.json();
+            localStorage.setItem("jatayu_user", JSON.stringify(meData));
+            currentUser = meData;
+            if (currentUser.user_type !== "ADMIN") {
+              window.location.href =
+                currentUser.user_type === "MERCHANT" ? "/merchant" : "/dashboard";
+              return;
+            }
+            loadAll();
+          } catch (err) {
+            // Network error — fall back to cached data
+            console.error("Session validation failed:", err);
+            currentUser = JSON.parse(localStorage.getItem("jatayu_user") || "{}");
+            if (currentUser.user_type !== "ADMIN") {
+              window.location.href =
+                currentUser.user_type === "MERCHANT" ? "/merchant" : "/dashboard";
+              return;
+            }
+            loadAll();
+          }
+        })();
+      }
+
+      function getDeviceId() {
+        let deviceId = localStorage.getItem("jatayu_device_id");
+        if (!deviceId) {
+          deviceId = `device_${crypto.randomUUID ? crypto.randomUUID().replace(/-/g, "").slice(0, 16) : `${Date.now()}${Math.random().toString(36).slice(2, 10)}`}`;
+          localStorage.setItem("jatayu_device_id", deviceId);
         }
-        loadAll();
+        return deviceId;
+      }
+
+      function clearAuthStorage() {
+        const deviceId = localStorage.getItem("jatayu_device_id");
+        localStorage.clear();
+        if (deviceId) localStorage.setItem("jatayu_device_id", deviceId);
       }
 
       async function apiCall(endpoint, options = {}) {
         const headers = {
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
+          "X-Device-ID": getDeviceId(),
           ...options.headers,
         };
         const res = await fetch(endpoint, { ...options, headers });
         if (res.status === 401) {
-          localStorage.clear();
+          clearAuthStorage();
           document.cookie = "jatayu_token=; Max-Age=0; Path=/; SameSite=Lax";
           window.location.href = "/login";
+          return res;
+        }
+        if (res.status === 403) {
+          const cloned = res.clone();
+          try {
+            const body = await cloned.json();
+            const detail = (body.detail || "").toLowerCase();
+            if (detail.includes("suspended") || detail.includes("blocked")) {
+              window.location.href = "/suspended";
+              return res;
+            }
+          } catch (_) { /* non-JSON 403 — let caller handle */ }
         }
         return res;
       }
@@ -1673,7 +1764,7 @@
 
       function logout() {
         apiCall("/auth/logout", { method: "POST" }).finally(() => {
-          localStorage.clear();
+          clearAuthStorage();
           document.cookie = "jatayu_token=; Max-Age=0; Path=/; SameSite=Lax";
           window.location.href = "/login";
         });

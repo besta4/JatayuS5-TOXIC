@@ -157,7 +157,8 @@ def _row_to_msg(row: pd.Series):
         from agents.models import TransactionMessage, TransactionType, TrafficMode
 
         type_map = {t.value: t for t in TransactionType}
-        txn_type = type_map.get(str(row.get("type", "PAYMENT")).upper(), TransactionType.PAYMENT)
+        raw_type = str(row.get("type", "PAYMENT")).upper().replace("-", "_")
+        txn_type = type_map.get(raw_type, TransactionType.PAYMENT)
 
         return TransactionMessage(
             step=int(row.get("step", 0)),
@@ -421,6 +422,18 @@ async def get_summary(task_id: str):
 
     scores = [r.get("fraud_score", 0) for r in rows if r.get("fraud_score") is not None]
     avg_risk = round(sum(scores) / len(scores), 4) if scores else 0
+    first_influence = next(
+        (r.get("dataset_influence") for r in rows if r.get("dataset_influence")),
+        {},
+    )
+    dataset_artifact = {
+        "model_version": first_influence.get("model_version"),
+        "artifact_mode": first_influence.get("artifact_mode"),
+        "decision_threshold": first_influence.get("decision_threshold"),
+        "best_val_auc": first_influence.get("best_val_auc"),
+        "embedding_dim": first_influence.get("embedding_dim"),
+        "feature_count": (first_influence.get("feature_contract") or {}).get("feature_count"),
+    }
 
     pattern_counts: dict[str, int] = {}
     action_counts: dict[str, int] = {}
@@ -515,6 +528,7 @@ async def get_summary(task_id: str):
             "action_counts": action_counts,
             "risk_counts": risk_counts,
             "score_histogram": buckets,
+            "dataset_artifact": dataset_artifact,
         },
         "exceptions": exceptions[:50],
         "graph": {"nodes": list(nodes.values()), "links": links},
@@ -572,6 +586,7 @@ async def get_agent_outputs(task_id: str, limit: int = 200):
             "fraud_label": r.get("fraud_label", False),
             "top_features": r.get("top_features") or [],
             "model_version": r.get("model_version") or "—",
+            "dataset_influence": r.get("dataset_influence") or {},
         })
 
         # Agent 2 — Pattern Detection
@@ -595,6 +610,7 @@ async def get_agent_outputs(task_id: str, limit: int = 200):
             "pattern_type": r.get("pattern_type") or "NONE",
             "risk_level": r.get("risk_level") or "LOW",
             "recommended_action": r.get("recommended_action") or "PASS",
+            "account_context": r.get("account_context") or {},
         })
 
         # Agent 4 — Alert & Block
@@ -606,6 +622,7 @@ async def get_agent_outputs(task_id: str, limit: int = 200):
             "action_taken": r.get("action_taken") or "PASS",
             "risk_level": r.get("risk_level") or "LOW",
             "explanation": r.get("explanation") or "—",
+            "dataset_influence": r.get("dataset_influence") or {},
         })
 
         # Agent 5 — Compliance Logging
@@ -690,6 +707,8 @@ async def get_intelligence_stream(task_id: str):
             "risk_level": r.get("risk_level"),
             "action_taken": r.get("action_taken"),
             "fraud_score": r.get("fraud_score"),
+            "dataset_threshold_ratio": (r.get("dataset_influence") or {}).get("threshold_ratio"),
+            "top_features": r.get("top_features") or [],
             "explanation": r.get("explanation") or r.get("pattern_reasoning") or "",
         }
         for r in rows
@@ -725,6 +744,7 @@ async def get_intelligence_stream(task_id: str):
         "2) Risk assessment summary, "
         "3) Notable high-risk transactions, "
         "4) Recommended focus areas for the fraud team. "
+        "Give weight to the PaySim-trained XGBoost/GNN threshold ratios and top features. "
         "Be specific and analytical. Format your response as structured JSON."
     )
 
@@ -854,6 +874,8 @@ async def get_intelligence(task_id: str):
             "risk_level": r.get("risk_level"),
             "action_taken": r.get("action_taken"),
             "fraud_score": r.get("fraud_score"),
+            "dataset_threshold_ratio": (r.get("dataset_influence") or {}).get("threshold_ratio"),
+            "top_features": r.get("top_features") or [],
             "explanation": r.get("explanation") or r.get("pattern_reasoning") or "",
         }
         for r in rows
@@ -880,6 +902,7 @@ async def get_intelligence(task_id: str):
         "2) Risk assessment summary, "
         "3) Notable high-risk transactions, "
         "4) Recommended focus areas for the fraud team. "
+        "Give weight to the PaySim-trained XGBoost/GNN threshold ratios and top features. "
         "Be specific and analytical. Format your response as structured JSON."
     )
 

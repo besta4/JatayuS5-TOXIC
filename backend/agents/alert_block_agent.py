@@ -54,6 +54,40 @@ class AlertBlockAgent(BaseAgent):
         # TODO: If action == SILENT_FLAG, write to a fraud ops dashboard topic.
         msg.action_taken = msg.recommended_action or Action.PASS
 
+        # Dynamic suspension policy mapping
+        msg.suspend_sender = False
+        msg.suspend_receiver = False
+        msg.suspend_mule_network = False
+
+        if msg.action_taken == Action.BLOCK:
+            pattern = msg.pattern_type or PatternType.NONE
+            if pattern == PatternType.MULE_NETWORK:
+                msg.suspend_sender = True
+                msg.suspend_receiver = True
+                msg.suspend_mule_network = True
+            elif pattern == PatternType.ACCOUNT_TAKEOVER:
+                msg.suspend_sender = True
+                is_merchant = False
+                if msg.nameDest:
+                    try:
+                        import database as db
+                        dest_user = db.get_user_by_id(msg.nameDest)
+                        if dest_user and dest_user.get("user_type") == "MERCHANT":
+                            is_merchant = True
+                    except Exception:
+                        is_merchant = msg.nameDest.startswith("M")
+                if not is_merchant:
+                    msg.suspend_receiver = True
+            elif pattern == PatternType.CIRCULAR_FLOW:
+                msg.suspend_sender = True
+                msg.suspend_receiver = True
+            elif pattern == PatternType.VELOCITY_SPIKE:
+                # Velocity spike rejects the transaction but leaves accounts active
+                msg.suspend_sender = False
+            else:
+                # Default fallback block enforcement
+                msg.suspend_sender = True
+
         # Generate explanation
         msg.explanation = self._explain(msg)
         return msg
@@ -93,12 +127,25 @@ class AlertBlockAgent(BaseAgent):
         risk       = (msg.risk_level or RiskLevel.LOW).value
         top        = ", ".join(msg.top_features or []) or "N/A"
         amount     = f"{msg.amount:,.2f}"
+        dataset = msg.dataset_influence or {}
+        threshold = dataset.get("decision_threshold")
+        threshold_ratio = dataset.get("threshold_ratio")
+        gnn_profile = dataset.get("gnn_embedding") or {}
+        artifact_mode = dataset.get("artifact_mode") or "unknown"
+        model_detail = ""
+        if threshold is not None and threshold_ratio is not None:
+            model_detail = (
+                f" PaySim artifact signal: score is {float(threshold_ratio):.2f}x "
+                f"the trained threshold {float(threshold):.4f}; "
+                f"GNN embedding {'matched' if gnn_profile.get('used') else 'not matched'}."
+            )
 
         template = (
             f"Transaction of {msg.type.value if hasattr(msg.type, 'value') else msg.type} "
             f"${amount} from {msg.nameOrig} to {msg.nameDest} received a fraud probability "
             f"of {score_pct}. "
-            f"Top contributing signals: [{top}]. "
+            f"Top contributing signals from the {artifact_mode} PaySim-trained XGBoost/GNN stack: [{top}]."
+            f"{model_detail} "
             f"Pattern analysis flagged this as {pattern} with risk level {risk}. "
             f"Action taken: {action}."
         )

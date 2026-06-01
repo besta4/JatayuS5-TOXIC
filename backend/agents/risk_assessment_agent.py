@@ -419,12 +419,19 @@ class RiskAssessmentAgent(BaseAgent):
     def __init__(
         self,
         use_rl: bool = False,
-        device: str = "cpu",
+        device: str = "auto",
         policy_path: Optional[str] = None,
     ) -> None:
         # TODO: At init, load account context source (e.g. a JSON file or DB connection)
         # that maps nameOrig → {"account_age_days": ..., "tier": ..., "velocity_limit": ...}.
         # This is needed so the RL policy / rule engine can factor in account standing.
+
+        # Auto-detect device if set to "auto"
+        if device == "auto" and _TORCH_AVAILABLE:
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            logger.info("[%s] Auto-detected device: %s", self.name, device)
+        elif device == "auto":
+            device = "cpu"
 
         # Safety default:
         # - We keep PPO integrated, but do NOT enable it unless the caller opts in
@@ -517,16 +524,28 @@ class RiskAssessmentAgent(BaseAgent):
                 pattern_type = msg.pattern_type or PatternType.NONE
                 pattern_confidence = msg.pattern_confidence or 0.0
                 historical_risk = account_context.get("historical_risk", 0.0)
+                model_threshold = account_context.get("model_threshold")
                 risk_level, action = self._decide_rule_based(
-                    fraud_score, pattern_type, pattern_confidence, historical_risk
+                    fraud_score,
+                    pattern_type,
+                    pattern_confidence,
+                    historical_risk,
+                    model_threshold=model_threshold,
+                    fraud_label=bool(msg.fraud_label),
                 )
         else:
             fraud_score = msg.fraud_score or 0.0
             pattern_type = msg.pattern_type or PatternType.NONE
             pattern_confidence = msg.pattern_confidence or 0.0
             historical_risk = account_context.get("historical_risk", 0.0)
+            model_threshold = account_context.get("model_threshold")
             risk_level, action = self._decide_rule_based(
-                fraud_score, pattern_type, pattern_confidence, historical_risk
+                fraud_score,
+                pattern_type,
+                pattern_confidence,
+                historical_risk,
+                model_threshold=model_threshold,
+                fraud_label=bool(msg.fraud_label),
             )
 
         msg.risk_level = risk_level
@@ -538,7 +557,10 @@ class RiskAssessmentAgent(BaseAgent):
 
     def _decide_rule_based(
         self, fraud_score: float, pattern_type: PatternType,
-        pattern_confidence: float = 0.0, historical_risk: float = 0.0
+        pattern_confidence: float = 0.0,
+        historical_risk: float = 0.0,
+        model_threshold: Optional[float] = None,
+        fraud_label: bool = False,
     ) -> tuple[RiskLevel, Action]:
         """
         Rule-based risk decision table combining ML fraud score + pattern detection
@@ -584,6 +606,9 @@ class RiskAssessmentAgent(BaseAgent):
         # gets almost none (exponential decay).
         hist_boost = min(0.15, historical_risk * 0.3)  # Max +0.15 boost
         effective_score = min(1.0, fraud_score + hist_boost)
+        threshold = float(model_threshold or 0.0)
+        threshold_ratio = fraud_score / threshold if threshold > 0 else 0.0
+        calibrated_flag = bool(fraud_label or (threshold > 0 and fraud_score >= threshold))
 
         # Very high ML score - always block
         if effective_score >= 0.80:
@@ -599,6 +624,19 @@ class RiskAssessmentAgent(BaseAgent):
                 return RiskLevel.HIGH, Action.BLOCK
             elif pattern_confidence >= 0.60:
                 return RiskLevel.HIGH, Action.HOLD
+
+        # PaySim-trained XGBoost threshold calibration.
+        # The saved model threshold is intentionally low for imbalanced fraud
+        # detection, so a numerically small score can still be model-positive.
+        # Threshold multiples make the trained dataset influence enforcement
+        # even when Agent 2 has not found a coordinated pattern yet.
+        if calibrated_flag:
+            if threshold_ratio >= 12.0 or fraud_score >= 0.35:
+                if coordinated or historical_risk >= 0.30:
+                    return RiskLevel.CRITICAL, Action.BLOCK
+                return RiskLevel.HIGH, Action.HOLD
+            if coordinated and (threshold_ratio >= 4.0 or fraud_score >= 0.10):
+                return RiskLevel.HIGH, Action.BLOCK
         
         # Moderate ML score with coordinated pattern - block
         if effective_score >= 0.50 and coordinated:
@@ -647,6 +685,17 @@ class RiskAssessmentAgent(BaseAgent):
           - Recent flagged transaction count (for recidivism check)
         """
         hints = hints or {}
+        dataset = msg.dataset_influence or {}
+        model_threshold = dataset.get("decision_threshold")
+        try:
+            model_threshold = float(model_threshold) if model_threshold is not None else None
+        except Exception:
+            model_threshold = None
+        if model_threshold and model_threshold > 0:
+            model_score_ratio = float(msg.fraud_score or 0.0) / model_threshold
+        else:
+            model_score_ratio = 0.0
+        gnn_profile = dataset.get("gnn_embedding") or {}
         return {
             # TODO: Look up real account_age from account database.
             "account_age_days": None,
@@ -664,6 +713,11 @@ class RiskAssessmentAgent(BaseAgent):
             # from the Redis-backed decay engine. Ranges [0, 1].
             "historical_risk": hints.get("historical_risk", 0.0),
             "decayed_risk_tiers": hints.get("decayed_risk_tiers", {}),
+            "model_threshold": model_threshold,
+            "model_score_ratio": round(model_score_ratio, 4),
+            "dataset_artifact_mode": dataset.get("artifact_mode"),
+            "gnn_embedding_used": bool(gnn_profile.get("used", False)),
+            "gnn_structural_signal": gnn_profile.get("structural_signal", 0.0),
         }
 
     # ── Public hooks for other agents / training scripts ──────────────────────

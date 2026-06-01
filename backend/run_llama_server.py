@@ -34,7 +34,14 @@ MODEL_PATH = LOCAL_MODEL_DIR / MODEL_FILE
 # Server settings
 HOST = "127.0.0.1"
 PORT = 8080
-N_GPU_LAYERS = -1  # -1 = offload all layers to GPU
+# Auto-detect GPU availability
+try:
+    import torch
+    HAS_GPU = torch.cuda.is_available()
+except Exception:
+    HAS_GPU = False
+
+N_GPU_LAYERS = -1 if HAS_GPU else 0  # -1 = all layers to GPU, 0 = CPU only
 CONTEXT_SIZE = 4096  # LFM2.5 supports up to 32k context
 
 
@@ -59,34 +66,48 @@ def check_and_install_packages():
             print(f"✗ {pip_name} not found. Installing...")
             
             if pip_name == "llama-cpp-python":
-                # Use pre-built wheels from llama-cpp-python releases
-                # Try CUDA 12.4 wheel first (for GPU), then CPU
-                wheel_urls = [
-                    # CUDA 12.4 pre-built wheel for Windows
-                    "https://github.com/abetlen/llama-cpp-python/releases/download/v0.3.19-cu124/llama_cpp_python-0.3.19-cp312-cp312-win_amd64.whl",
-                    # CPU fallback
-                    "https://github.com/abetlen/llama-cpp-python/releases/download/v0.3.19/llama_cpp_python-0.3.19-cp312-cp312-win_amd64.whl",
-                ]
+                # Platform-specific installation
+                system = platform.system()
                 
-                installed = False
-                for url in wheel_urls:
-                    print(f"  Trying: {url.split('/')[-1]}")
+                if system == "Windows":
+                    # Use pre-built wheels for Windows
+                    wheel_urls = [
+                        # CUDA 12.4 pre-built wheel for Windows (GPU)
+                        "https://github.com/abetlen/llama-cpp-python/releases/download/v0.3.19-cu124/llama_cpp_python-0.3.19-cp312-cp312-win_amd64.whl",
+                        # CPU fallback
+                        "https://github.com/abetlen/llama-cpp-python/releases/download/v0.3.19/llama_cpp_python-0.3.19-cp312-cp312-win_amd64.whl",
+                    ]
+                    
+                    installed = False
+                    for url in wheel_urls:
+                        print(f"  Trying: {url.split('/')[-1]}")
+                        result = subprocess.run(
+                            [sys.executable, "-m", "pip", "install", url],
+                            capture_output=True
+                        )
+                        if result.returncode == 0:
+                            print(f"  ✓ Installed successfully")
+                            installed = True
+                            break
+                        else:
+                            print(f"  ✗ Failed, trying next option...")
+                    
+                    if not installed:
+                        print("\n  ERROR: Could not install llama-cpp-python")
+                        print("  Please install Visual Studio Build Tools or use pre-built wheel")
+                        print("  Manual install: pip install llama-cpp-python --prefer-binary")
+                        sys.exit(1)
+                else:
+                    # Linux/Mac: Use pip with binary preference
+                    print(f"  Installing {pip_name} for {system}...")
                     result = subprocess.run(
-                        [sys.executable, "-m", "pip", "install", url],
-                        capture_output=True
+                        [sys.executable, "-m", "pip", "install", pip_name, "--prefer-binary"],
+                        capture_output=False
                     )
-                    if result.returncode == 0:
-                        print(f"  ✓ Installed successfully")
-                        installed = True
-                        break
-                    else:
-                        print(f"  ✗ Failed, trying next option...")
-                
-                if not installed:
-                    print("\n  ERROR: Could not install llama-cpp-python")
-                    print("  Please install Visual Studio Build Tools or use pre-built wheel")
-                    print("  Manual install: pip install llama-cpp-python --prefer-binary")
-                    sys.exit(1)
+                    if result.returncode != 0:
+                        print(f"\n  ERROR: Could not install {pip_name}")
+                        print(f"  Manual install: pip install {pip_name} --prefer-binary")
+                        sys.exit(1)
             else:
                 run_cmd([sys.executable, "-m", "pip", "install", pip_name])
 
@@ -122,7 +143,8 @@ def start_server():
     print("Starting llama.cpp server...")
     print(f"  Model: {MODEL_PATH}")
     print(f"  Endpoint: http://{HOST}:{PORT}/v1/chat/completions")
-    print(f"  GPU Layers: {N_GPU_LAYERS} (all)")
+    print(f"  GPU Layers: {N_GPU_LAYERS} ({'GPU accelerated' if HAS_GPU else 'CPU only'})")
+    print(f"  Hardware: {'CUDA GPU detected' if HAS_GPU else 'CPU mode'}")
     print("="*60 + "\n")
     
     cmd = [

@@ -69,6 +69,12 @@ class TransactionMonitoringAgent(BaseAgent):
         self.user_scaler: Any = None
         self._shap_explainer: Any = None
         self._shap_unavailable_reason: str | None = None
+        self.artifact_config: dict[str, Any] = {}
+        self.artifact_files: dict[str, str] = {}
+        self.embedding_norm_stats: dict[str, float] = {
+            "mean": 0.0,
+            "std": 1.0,
+        }
 
         try:
             try:
@@ -89,8 +95,14 @@ class TransactionMonitoringAgent(BaseAgent):
                 cfg_path = config_paths[-1]
                 with cfg_path.open("r", encoding="utf-8") as f:
                     cfg = json.load(f)
+                self.artifact_config = cfg
 
                 files_cfg = cfg.get("files", {})
+                self.artifact_files = {
+                    key: str(data_dir / filename)
+                    for key, filename in files_cfg.items()
+                    if filename
+                }
 
                 # Mappings: user → index, plus other entity maps if needed later.
                 mappings_path = data_dir / files_cfg.get("mappings", "")
@@ -114,6 +126,11 @@ class TransactionMonitoringAgent(BaseAgent):
                 emb = np.load(emb_path)
                 # Use test embeddings as the "live" lookup for known users.
                 self.embeddings = emb["test"]
+                emb_norms = np.linalg.norm(self.embeddings, axis=1)
+                self.embedding_norm_stats = {
+                    "mean": float(np.mean(emb_norms)),
+                    "std": float(np.std(emb_norms) or 1.0),
+                }
 
                 # XGBoost fraud classifier.
                 xgb_path = data_dir / files_cfg.get("xgb_model", "")
@@ -186,88 +203,184 @@ class TransactionMonitoringAgent(BaseAgent):
         Otherwise it falls back to a traffic_mode-based stub for demo purposes.
         """
 
+        fraud_prob, top_features, _ = self._score_with_evidence(msg)
+        return fraud_prob, top_features
+
+    def _score_with_evidence(
+        self,
+        msg: TransactionMessage,
+    ) -> tuple[float, list[str], dict[str, Any]]:
+        """
+        Score a transaction and return the compact PaySim artifact evidence
+        that downstream agents can use for calibrated decisions.
+        """
         if getattr(self, "_stub_mode", True) or self.xgb_model is None or self.embeddings is None:
-            return self._stub_score(msg)
+            fraud_prob, top_features = self._stub_score(msg)
+            evidence = {
+                "source_dataset": "PaySim synthetic mobile money dataset (Kaggle ealaxi/paysim1)",
+                "artifact_mode": "stub",
+                "model_version": self.model_version,
+                "decision_threshold": self.threshold,
+                "xgb_probability": fraud_prob,
+                "final_probability": fraud_prob,
+                "threshold_ratio": round(fraud_prob / max(self.threshold, 1e-9), 4),
+                "gnn_embedding_used": False,
+                "dynamic_graph_boost": 0.0,
+            }
+            return fraud_prob, top_features, evidence
 
-        # ── Real inference path: build feature vector for XGBoost ─────────────
-        # 1. Look up static GNN embedding for the originating user (or zeros).
-        emb_dim = int(self.embeddings.shape[1]) if self.embeddings is not None else 64
-        if self.user_map is not None and msg.nameOrig in self.user_map:
-            idx = self.user_map[msg.nameOrig]
-            try:
-                emb = np.asarray(self.embeddings[idx], dtype=float)
-            except Exception:  # noqa: BLE001
-                emb = np.zeros(emb_dim, dtype=float)
-        else:
-            emb = np.zeros(emb_dim, dtype=float)
+        embedding, embedding_profile = self._lookup_embedding(msg)
+        dynamic_features, dynamic_summary = self._get_dynamic_graph_features(msg)
+        x_vec, vector_names = self._build_feature_array(msg, embedding=embedding)
 
-        # 1b. Get dynamic graph features from Redis (real-time behavioral context).
-        #     These 16 dims capture live velocity, counterparty fan-in/fan-out,
-        #     burst patterns, and account activity age — things the static GNN
-        #     embeddings from training time cannot know.
-        dynamic_features = np.zeros(16, dtype=float)
-        if self._graph_cache and self._graph_cache.available:
-            try:
-                dynamic_features = self._graph_cache.get_dynamic_features(msg.nameOrig)
-            except Exception:  # noqa: BLE001
-                pass  # graceful degradation to zeros
+        xgb_probability = self._predict_xgb_probability(x_vec, vector_names)
+        fraud_prob = xgb_probability
 
-        # 2. Assemble XGBoost feature vector.
-        #    Order: tabular + extras + type_dummies + static_emb
-        #    Dynamic features are used as a score adjustment (see below)
-        #    rather than concatenated into the XGBoost vector, because the
-        #    XGBoost model was trained without them. Adding dimensions would
-        #    cause a feature-count mismatch.
-        x_vec, _ = self._build_feature_array(msg)
-
-        # 5. Predict fraud probability.
-        # Use Booster.predict(DMatrix) to avoid sklearn wrapper inplace_predict
-        # device mismatch warnings when model is on CUDA and input is NumPy/CPU.
-        fraud_prob = 0.0
-        try:
-            if self._xgb_module is not None and hasattr(self.xgb_model, "get_booster"):
-                booster = self.xgb_model.get_booster()
-                dmatrix = self._xgb_module.DMatrix(x_vec)
-                pred = booster.predict(dmatrix)
-                fraud_prob = float(np.asarray(pred).reshape(-1)[0])
-            else:
-                fraud_prob = float(self.xgb_model.predict_proba(x_vec)[0][1])
-        except Exception:  # noqa: BLE001
-            fraud_prob = float(self.xgb_model.predict_proba(x_vec)[0][1])
-
-        # 5b. Dynamic graph score adjustment.
-        #     Since the XGBoost model was trained without dynamic features,
-        #     we use them as a post-hoc risk boost rather than concatenating
-        #     into the feature vector (which would cause dimension mismatch).
-        #     The boost is capped at +0.15 so it nudges but doesn't dominate.
+        dynamic_boost = 0.0
         if np.any(dynamic_features != 0):
-            # Key signals: burst_5min (idx 13), in_burst_5min (idx 14),
-            #              out_count_1h (idx 0), in_count_1h (idx 4)
             burst_signal = float(dynamic_features[13]) + float(dynamic_features[14])
-            velocity_signal = float(dynamic_features[0])  # out_count_1h
-            # Scale: 5+ bursts or 10+ hourly txns → meaningful boost
+            velocity_signal = float(dynamic_features[0])
             dynamic_boost = min(0.15, (burst_signal / 20.0) + (velocity_signal / 50.0))
             if dynamic_boost > 0.01:
                 fraud_prob = min(1.0, fraud_prob + dynamic_boost)
                 logger.debug(
-                    "[%s] Dynamic graph boost: +%.4f → final=%.4f (burst=%d, vel_1h=%d)",
-                    self.name, dynamic_boost, fraud_prob,
-                    int(burst_signal), int(velocity_signal)
+                    "[%s] Dynamic graph boost: +%.4f -> final=%.4f (burst=%d, vel_1h=%d)",
+                    self.name,
+                    dynamic_boost,
+                    fraud_prob,
+                    int(burst_signal),
+                    int(velocity_signal),
                 )
 
-        # 6. Top features via model feature_importances_ if available.
-        top_features: list[str] = []
-        if self.feature_names is not None and self.feature_importances is not None:
-            try:
-                importances = np.asarray(self.feature_importances, dtype=float)
-                names = list(self.feature_names)
-                if importances.shape[0] == len(names):
-                    idxs = np.argsort(np.abs(importances))[::-1][:5]
-                    top_features = [str(names[i]) for i in idxs]
-            except Exception:  # noqa: BLE001
-                top_features = []
+        top_features = self._rank_top_features(x_vec, vector_names)
+        score_ratio = fraud_prob / max(self.threshold, 1e-9)
+        evidence = {
+            "source_dataset": "PaySim synthetic mobile money dataset (Kaggle ealaxi/paysim1)",
+            "artifact_mode": "trained",
+            "model_version": self.model_version,
+            "decision_threshold": self.threshold,
+            "best_val_auc": self.artifact_config.get("best_val_auc"),
+            "train_size": self.artifact_config.get("train_size"),
+            "val_size": self.artifact_config.get("val_size"),
+            "test_size": self.artifact_config.get("test_size"),
+            "n_users": self.artifact_config.get("n_users"),
+            "n_merchants": self.artifact_config.get("n_merchants"),
+            "embedding_dim": self.artifact_config.get("embedding_dim"),
+            "gnn_epochs": self.artifact_config.get("gnn_epochs"),
+            "xgb_probability": round(float(xgb_probability), 6),
+            "dynamic_graph_boost": round(float(dynamic_boost), 6),
+            "final_probability": round(float(fraud_prob), 6),
+            "threshold_ratio": round(float(score_ratio), 4),
+            "gnn_embedding": embedding_profile,
+            "dynamic_graph": dynamic_summary,
+            "artifact_files": {
+                key: Path(path).name
+                for key, path in self.artifact_files.items()
+            },
+            "feature_contract": {
+                "feature_count": int(x_vec.shape[1]),
+                "uses_training_feature_order": bool(self.feature_names),
+            },
+        }
+        return fraud_prob, top_features, evidence
 
-        return fraud_prob, top_features
+    def _lookup_embedding(self, msg: TransactionMessage) -> tuple[np.ndarray, dict[str, Any]]:
+        """Look up the saved GNN user embedding and summarize its influence."""
+        emb_dim = int(self.embeddings.shape[1]) if self.embeddings is not None else 64
+        emb = np.zeros(emb_dim, dtype=float)
+        known_user = False
+        node_index: int | None = None
+
+        if self.embeddings is not None and self.user_map is not None and msg.nameOrig in self.user_map:
+            node_index = int(self.user_map[msg.nameOrig])
+            try:
+                emb = np.asarray(self.embeddings[node_index], dtype=float)
+                known_user = True
+            except Exception:  # noqa: BLE001
+                emb = np.zeros(emb_dim, dtype=float)
+                known_user = False
+
+        norm = float(np.linalg.norm(emb))
+        mean = self.embedding_norm_stats.get("mean", 0.0)
+        std = self.embedding_norm_stats.get("std", 1.0) or 1.0
+        z_score = (norm - mean) / std if known_user else 0.0
+        structural_signal = 1.0 / (1.0 + np.exp(-z_score)) if known_user else 0.0
+
+        return emb, {
+            "used": known_user,
+            "node_index": node_index,
+            "dimension": emb_dim,
+            "l2_norm": round(norm, 6),
+            "norm_z_score": round(float(z_score), 4),
+            "structural_signal": round(float(structural_signal), 4),
+        }
+
+    def _get_dynamic_graph_features(
+        self,
+        msg: TransactionMessage,
+    ) -> tuple[np.ndarray, dict[str, Any]]:
+        """Fetch live graph context used as a bounded post-model adjustment."""
+        dynamic_features = np.zeros(16, dtype=float)
+        if self._graph_cache and self._graph_cache.available:
+            try:
+                dynamic_features = np.asarray(
+                    self._graph_cache.get_dynamic_features(msg.nameOrig),
+                    dtype=float,
+                )
+            except Exception:  # noqa: BLE001
+                dynamic_features = np.zeros(16, dtype=float)
+
+        summary = {
+            "available": bool(self._graph_cache and self._graph_cache.available),
+            "out_count_1h": int(dynamic_features[0]) if len(dynamic_features) > 0 else 0,
+            "in_count_1h": int(dynamic_features[4]) if len(dynamic_features) > 4 else 0,
+            "burst_5min": int(dynamic_features[13]) if len(dynamic_features) > 13 else 0,
+            "in_burst_5min": int(dynamic_features[14]) if len(dynamic_features) > 14 else 0,
+        }
+        return dynamic_features, summary
+
+    def _predict_xgb_probability(
+        self,
+        x_vec: np.ndarray,
+        feature_names: list[str],
+    ) -> float:
+        """Predict with the saved XGBoost model using the training feature names."""
+        if self.xgb_model is None:
+            return 0.0
+
+        try:
+            if self._xgb_module is not None and hasattr(self.xgb_model, "get_booster"):
+                booster = self.xgb_model.get_booster()
+                dmatrix = self._xgb_module.DMatrix(x_vec, feature_names=feature_names)
+                pred = booster.predict(dmatrix)
+                return float(np.asarray(pred).reshape(-1)[0])
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("[%s] Booster DMatrix prediction failed: %s", self.name, exc)
+
+        try:
+            import pandas as pd  # type: ignore
+
+            frame = pd.DataFrame(x_vec, columns=feature_names)
+            return float(self.xgb_model.predict_proba(frame)[0][1])
+        except Exception:  # noqa: BLE001
+            return float(self.xgb_model.predict_proba(x_vec)[0][1])
+
+    def _rank_top_features(self, x_vec: np.ndarray, feature_names: list[str]) -> list[str]:
+        """Return the most influential trained feature names available for display."""
+        if self.feature_importances is None:
+            return []
+        try:
+            importances = np.asarray(self.feature_importances, dtype=float)
+            values = np.asarray(x_vec, dtype=float).reshape(-1)
+            if importances.shape[0] != len(feature_names):
+                return []
+            weighted = np.abs(importances * values[: len(importances)])
+            if not np.any(weighted):
+                weighted = np.abs(importances)
+            idxs = np.argsort(weighted)[::-1][:5]
+            return [str(feature_names[i]) for i in idxs]
+        except Exception:  # noqa: BLE001
+            return []
 
     def _stub_score(self, msg: TransactionMessage) -> tuple[float, list[str]]:
         """
@@ -295,15 +408,19 @@ class TransactionMonitoringAgent(BaseAgent):
             "oldbalanceOrg",
             "amount",
             "newbalanceOrig",
-            "gnn_emb_3",   # GNN embedding dimensions appear in real top-20
-            "gnn_emb_17",
+            "gnn_3",   # GNN embedding dimensions appear in real top-20
+            "gnn_17",
         ]
         top_feats = random.sample(_stub_top_features, k=5)
         return round(base_score, 6), top_feats
 
     # ── Feature builder — reusable by score() and explain() ─────────────────
 
-    def _build_features(self, msg: TransactionMessage) -> dict:
+    def _build_features(
+        self,
+        msg: TransactionMessage,
+        embedding: np.ndarray | None = None,
+    ) -> dict:
         """
         Extract and return a dict of all named features used by the XGBoost
         model for the given transaction message.
@@ -311,20 +428,27 @@ class TransactionMonitoringAgent(BaseAgent):
         Returns a dict: {feature_name: float_value}
         The order matches the assembled x_vec in score().
         """
-        # GNN embedding lookup
-        emb_dim = int(self.embeddings.shape[1]) if self.embeddings is not None else 64
-        if (
-            self.embeddings is not None
-            and self.user_map is not None
-            and msg.nameOrig in self.user_map
-        ):
-            idx = self.user_map[msg.nameOrig]
-            try:
-                emb = list(map(float, self.embeddings[idx]))
-            except Exception:  # noqa: BLE001
-                emb = [0.0] * emb_dim
-        else:
-            emb = [0.0] * emb_dim
+        if embedding is None:
+            embedding, _ = self._lookup_embedding(msg)
+        emb = [float(v) for v in np.asarray(embedding, dtype=float)]
+
+        msg_type = msg.type.value if hasattr(msg.type, "value") else str(msg.type)
+        msg_type = msg_type.upper().replace("-", "_")
+        type_values = [
+            "CASH_IN",
+            "CASH_OUT",
+            "DEBIT",
+            "PAYMENT",
+            "TRANSFER",
+        ]
+        type_dummies: dict[str, float] = {}
+        for value in type_values:
+            active = 1.0 if msg_type == value else 0.0
+            type_dummies[f"type_{value}"] = active
+            # PaySim raw CSV uses CASH-IN/CASH-OUT. Keep aliases so whichever
+            # spelling the saved XGBoost feature contract expects is populated.
+            if value in {"CASH_IN", "CASH_OUT"}:
+                type_dummies[f"type_{value.replace('_', '-')}"] = active
 
         balance_diff_orig = float(msg.oldbalanceOrg) - float(msg.newbalanceOrig)
         balance_diff_dest = float(msg.newbalanceDest) - float(msg.oldbalanceDest)
@@ -333,15 +457,6 @@ class TransactionMonitoringAgent(BaseAgent):
             if msg.oldbalanceOrg is not None
             else 0.0
         )
-
-        type_order = [
-            TransactionType.PAYMENT,
-            TransactionType.TRANSFER,
-            TransactionType.CASH_IN,
-            TransactionType.CASH_OUT,
-            TransactionType.DEBIT,
-        ]
-        type_dummies = {f"type_{t.value}": (1.0 if msg.type == t else 0.0) for t in type_order}
 
         tabular = {
             "step": float(msg.step),
@@ -356,13 +471,17 @@ class TransactionMonitoringAgent(BaseAgent):
         }
         tabular.update(type_dummies)
         for i, val in enumerate(emb):
-            tabular[f"gnn_emb_{i}"] = val
+            tabular[f"gnn_{i}"] = val
 
         return tabular
 
-    def _build_feature_array(self, msg: TransactionMessage) -> tuple[np.ndarray, list[str]]:
+    def _build_feature_array(
+        self,
+        msg: TransactionMessage,
+        embedding: np.ndarray | None = None,
+    ) -> tuple[np.ndarray, list[str]]:
         """Build the model feature array and the matching feature-name order."""
-        features = self._build_features(msg)
+        features = self._build_features(msg, embedding=embedding)
         base_names = [
             "step",
             "amount",
@@ -373,25 +492,27 @@ class TransactionMonitoringAgent(BaseAgent):
             "balance_diff_orig",
             "balance_diff_dest",
             "amount_to_balance_ratio",
-            "type_PAYMENT",
-            "type_TRANSFER",
             "type_CASH_IN",
             "type_CASH_OUT",
             "type_DEBIT",
+            "type_PAYMENT",
+            "type_TRANSFER",
         ]
         emb_names = sorted(
-            [name for name in features if name.startswith("gnn_emb_")],
+            [name for name in features if name.startswith("gnn_")],
             key=lambda name: int(name.rsplit("_", 1)[-1]),
         )
-        ordered_names = base_names + emb_names
-        values = [float(features.get(name, 0.0)) for name in ordered_names]
-
-        if self.feature_names and len(self.feature_names) == len(values):
-            display_names = list(self.feature_names)
+        fallback_names = base_names + emb_names
+        if self.feature_names:
+            ordered_names = list(self.feature_names)
         else:
-            display_names = ordered_names
+            ordered_names = fallback_names
+        values = [
+            float(features.get(name, features.get(name.replace("gnn_emb_", "gnn_"), 0.0)))
+            for name in ordered_names
+        ]
 
-        return np.asarray(values, dtype=float).reshape(1, -1), display_names
+        return np.asarray(values, dtype=float).reshape(1, -1), ordered_names
 
     def _compute_shap_attributions(
         self,
@@ -465,7 +586,7 @@ class TransactionMonitoringAgent(BaseAgent):
             from hand-crafted feature values.
         """
         # ── 1. Fraud score ────────────────────────────────────────────────────
-        fraud_score, _ = self.score(msg)
+        fraud_score, _, evidence = self._score_with_evidence(msg)
 
         # ── 2. Feature attributions ───────────────────────────────────────────
         features = self._build_features(msg)
@@ -492,7 +613,7 @@ class TransactionMonitoringAgent(BaseAgent):
             names = list(self.feature_names)
             total_imp = sum(abs(v) for v in importances) or 1.0
             for name, imp in zip(names, importances):
-                feat_val = features.get(name, 0.0)
+                feat_val = features.get(name, features.get(name.replace("gnn_emb_", "gnn_"), 0.0))
                 # Normalise importance then scale by feature value direction
                 contrib = (imp / total_imp) * feat_val
                 attributions.append((name, round(contrib, 4)))
@@ -506,9 +627,9 @@ class TransactionMonitoringAgent(BaseAgent):
                 ("newbalanceOrig",          -features.get("newbalanceOrig", 0.0) / 1e6 * 0.05),
             ]
             # Add some GNN dims
-            for i in range(min(3, len([k for k in features if k.startswith("gnn_emb")]))): 
-                gnn_val = features.get(f"gnn_emb_{i}", 0.0)
-                key_features.append((f"gnn_emb_{i}", round(gnn_val * 0.02, 4)))
+            for i in range(min(3, len([k for k in features if k.startswith("gnn_")]))):
+                gnn_val = features.get(f"gnn_{i}", 0.0)
+                key_features.append((f"gnn_{i}", round(gnn_val * 0.02, 4)))
             attributions = [(k, round(float(v), 4)) for k, v in key_features]
 
         # Sort by absolute contribution magnitude
@@ -543,6 +664,7 @@ class TransactionMonitoringAgent(BaseAgent):
             "top_negative_features": top_negative,
             "attribution_method": attribution_method,
             "shap_status": "available" if attribution_method == "shap" else (self._shap_unavailable_reason or "fallback"),
+            "dataset_influence": evidence,
             "rationale": rationale,
         }
 
@@ -660,9 +782,10 @@ class TransactionMonitoringAgent(BaseAgent):
                 )
 
     def _process(self, msg: TransactionMessage) -> TransactionMessage:
-        fraud_score, top_features = self.score(msg)
-        msg.fraud_score   = fraud_score
-        msg.fraud_label   = fraud_score >= self.threshold
-        msg.top_features  = top_features
+        fraud_score, top_features, evidence = self._score_with_evidence(msg)
+        msg.fraud_score = fraud_score
+        msg.fraud_label = fraud_score >= self.threshold
+        msg.top_features = top_features
         msg.model_version = self.model_version
+        msg.dataset_influence = evidence
         return msg

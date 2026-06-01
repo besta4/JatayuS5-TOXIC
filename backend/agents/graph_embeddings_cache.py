@@ -86,9 +86,10 @@ class DynamicGraphCache:
       - Burst score (txns in last 5 minutes)
     """
 
-    def __init__(self, redis_url: str | None = None) -> None:
+    def __init__(self, redis_url: str | None = None, prefix: str | None = None) -> None:
         self._redis: Any = None
         self._available: bool = False
+        self.prefix = prefix or os.environ.get("JATAYU_REDIS_PREFIX", "jatayu")
         redis_url = redis_url or os.environ.get("JATAYU_REDIS_URL", "redis://localhost:6379/0")
         try:
             import redis
@@ -97,7 +98,7 @@ class DynamicGraphCache:
             )
             self._redis.ping()
             self._available = True
-            logger.info("[DynamicGraphCache] Connected to Redis at %s", redis_url)
+            logger.info("[DynamicGraphCache] Connected to Redis at %s (prefix: %s)", redis_url, self.prefix)
         except Exception as exc:
             logger.warning(
                 "[DynamicGraphCache] Redis unavailable (%s). "
@@ -131,33 +132,33 @@ class DynamicGraphCache:
         pipe = self._redis.pipeline(transaction=False)
         try:
             # ── Sender outbound log (sorted set, score=timestamp) ─────────
-            sender_out_key = f"jatayu:out:{sender_id}"
+            sender_out_key = f"{self.prefix}:out:{sender_id}"
             pipe.zadd(sender_out_key, {txn_value: now_ms})
             pipe.expire(sender_out_key, KEY_TTL_SECONDS)
 
             # ── Receiver inbound log (sorted set, score=timestamp) ────────
-            receiver_in_key = f"jatayu:in:{receiver_id}"
+            receiver_in_key = f"{self.prefix}:in:{receiver_id}"
             pipe.zadd(receiver_in_key, {txn_value: now_ms})
             pipe.expire(receiver_in_key, KEY_TTL_SECONDS)
 
             # ── Sender's unique receiver set (24h window) ─────────────────
-            sender_receivers_key = f"jatayu:out_peers:{sender_id}"
+            sender_receivers_key = f"{self.prefix}:out_peers:{sender_id}"
             pipe.sadd(sender_receivers_key, receiver_id)
             pipe.expire(sender_receivers_key, KEY_TTL_SECONDS)
 
             # ── Receiver's unique sender set (24h window) ─────────────────
-            receiver_senders_key = f"jatayu:in_peers:{receiver_id}"
+            receiver_senders_key = f"{self.prefix}:in_peers:{receiver_id}"
             pipe.sadd(receiver_senders_key, sender_id)
             pipe.expire(receiver_senders_key, KEY_TTL_SECONDS)
 
             # ── Aggregate counters ────────────────────────────────────────
-            sender_agg_key = f"jatayu:agg:{sender_id}"
+            sender_agg_key = f"{self.prefix}:agg:{sender_id}"
             pipe.hincrby(sender_agg_key, "total_out_count", 1)
             pipe.hincrbyfloat(sender_agg_key, "total_out_amount", amount)
             pipe.hsetnx(sender_agg_key, "first_seen", str(now_ms))
             pipe.expire(sender_agg_key, KEY_TTL_SECONDS)
 
-            receiver_agg_key = f"jatayu:agg:{receiver_id}"
+            receiver_agg_key = f"{self.prefix}:agg:{receiver_id}"
             pipe.hincrby(receiver_agg_key, "total_in_count", 1)
             pipe.hincrbyfloat(receiver_agg_key, "total_in_amount", amount)
             pipe.hsetnx(receiver_agg_key, "first_seen", str(now_ms))
@@ -204,23 +205,23 @@ class DynamicGraphCache:
             pipe = self._redis.pipeline(transaction=False)
 
             # Outbound velocity
-            out_key = f"jatayu:out:{user_id}"
+            out_key = f"{self.prefix}:out:{user_id}"
             pipe.zrangebyscore(out_key, one_hour_ago, "+inf", withscores=True)       # [0]
             pipe.zrangebyscore(out_key, twenty_four_hours_ago, "+inf", withscores=True)  # [1]
             pipe.zrangebyscore(out_key, five_min_ago, "+inf", withscores=True)        # [2]
 
             # Inbound velocity
-            in_key = f"jatayu:in:{user_id}"
+            in_key = f"{self.prefix}:in:{user_id}"
             pipe.zrangebyscore(in_key, one_hour_ago, "+inf", withscores=True)         # [3]
             pipe.zrangebyscore(in_key, twenty_four_hours_ago, "+inf", withscores=True)  # [4]
             pipe.zrangebyscore(in_key, five_min_ago, "+inf", withscores=True)          # [5]
 
             # Unique counterparties
-            pipe.scard(f"jatayu:out_peers:{user_id}")   # [6]
-            pipe.scard(f"jatayu:in_peers:{user_id}")    # [7]
+            pipe.scard(f"{self.prefix}:out_peers:{user_id}")   # [6]
+            pipe.scard(f"{self.prefix}:in_peers:{user_id}")    # [7]
 
             # Aggregate
-            pipe.hgetall(f"jatayu:agg:{user_id}")       # [8]
+            pipe.hgetall(f"{self.prefix}:agg:{user_id}")       # [8]
 
             results = pipe.execute()
 
@@ -311,10 +312,10 @@ class DynamicGraphCache:
 
         try:
             pipe = self._redis.pipeline(transaction=False)
-            in_key = f"jatayu:in:{receiver_id}"
+            in_key = f"{self.prefix}:in:{receiver_id}"
             pipe.zrangebyscore(in_key, window_start, "+inf", withscores=True)
             pipe.zrangebyscore(in_key, five_min_ago, "+inf", withscores=True)
-            pipe.scard(f"jatayu:in_peers:{receiver_id}")
+            pipe.scard(f"{self.prefix}:in_peers:{receiver_id}")
             results = pipe.execute()
 
             txns_in_window = results[0] or []
@@ -361,10 +362,10 @@ class DynamicGraphCache:
 
         try:
             pipe = self._redis.pipeline(transaction=False)
-            out_key = f"jatayu:out:{sender_id}"
+            out_key = f"{self.prefix}:out:{sender_id}"
             pipe.zrangebyscore(out_key, window_start, "+inf", withscores=True)
             pipe.zrangebyscore(out_key, five_min_ago, "+inf", withscores=True)
-            pipe.scard(f"jatayu:out_peers:{sender_id}")
+            pipe.scard(f"{self.prefix}:out_peers:{sender_id}")
             results = pipe.execute()
 
             txns_in_window = results[0] or []
@@ -410,14 +411,14 @@ class DynamicGraphCache:
         try:
             # 1. 2-hop loop (Ping-Pong): Has B sent to A recently?
             # i.e., is A in B's out_peers?
-            b_out_peers_key = f"jatayu:out_peers:{receiver_id}"
+            b_out_peers_key = f"{self.prefix}:out_peers:{receiver_id}"
             is_ping_pong = self._redis.sismember(b_out_peers_key, sender_id)
             if is_ping_pong:
                 return {"is_circular": True, "type": "ping_pong"}
                 
             # 2. 3-hop loop (Triangle): Has B sent to C, who has sent to A?
             # This is the intersection of B's out_peers and A's in_peers.
-            a_in_peers_key = f"jatayu:in_peers:{sender_id}"
+            a_in_peers_key = f"{self.prefix}:in_peers:{sender_id}"
             common_nodes = self._redis.sinter(b_out_peers_key, a_in_peers_key)
             if common_nodes:
                 return {
@@ -476,7 +477,7 @@ class DynamicGraphCache:
             return
 
         now = time.time()
-        risk_key = f"jatayu:risk:{user_id}"
+        risk_key = f"{self.prefix}:risk:{user_id}"
         score_field = f"{tier}_score"
         ts_field = f"{tier}_ts"
 
@@ -534,7 +535,7 @@ class DynamicGraphCache:
             return result
 
         now = time.time()
-        risk_key = f"jatayu:risk:{user_id}"
+        risk_key = f"{self.prefix}:risk:{user_id}"
         tiers_to_query = [tier] if tier else list(DECAY_TIER_MAP.keys())
 
         try:
@@ -608,7 +609,7 @@ class DynamicGraphCache:
         if not self._available or not self._redis:
             return
 
-        risk_key = f"jatayu:risk:{user_id}"
+        risk_key = f"{self.prefix}:risk:{user_id}"
         try:
             if tier:
                 self._redis.hdel(risk_key, f"{tier}_score", f"{tier}_ts")

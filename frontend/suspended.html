@@ -45,6 +45,12 @@
         backdrop-filter: blur(20px);
         border-bottom: 1px solid rgba(255, 255, 255, 0.06);
       }
+      .logo-mark {
+        width: 32px;
+        height: 32px;
+        object-fit: contain;
+        filter: drop-shadow(0 0 10px rgba(62, 228, 255, 0.15));
+      }
       .input-field {
         background: rgba(255, 255, 255, 0.05);
         border: 1px solid rgba(255, 255, 255, 0.1);
@@ -145,34 +151,41 @@
         background: rgba(255, 255, 255, 0.08);
         color: #fff;
       }
+
+      /* Responsive: mobile */
+      @media (max-width: 768px) {
+        .msg-user {
+          margin-left: 5%;
+        }
+        .msg-admin {
+          margin-right: 5%;
+        }
+        .header-bar {
+          padding: 0.75rem 1rem;
+        }
+      }
+
+      @media (max-width: 480px) {
+        .msg-user {
+          margin-left: 2%;
+        }
+        .msg-admin {
+          margin-right: 2%;
+        }
+      }
     </style>
   </head>
   <body>
     <!-- Header -->
     <header
-      class="header-bar sticky top-0 z-50 px-6 py-4 flex items-center justify-between"
+      class="header-bar sticky top-0 z-50 px-3 py-3 md:px-6 md:py-4 flex items-center justify-between gap-2"
     >
       <div class="flex items-center gap-3">
-        <svg
-          width="28"
-          height="28"
-          viewBox="0 0 32 32"
-          fill="none"
-          xmlns="http://www.w3.org/2000/svg"
-        >
-          <rect
-            width="32"
-            height="32"
-            rx="8"
-            fill="white"
-            fill-opacity="0.08"
-          />
-          <path
-            d="M16 8L22 16L16 24L10 16L16 8Z"
-            fill="white"
-            fill-opacity="0.9"
-          />
-        </svg>
+        <img
+          src="/static/assets/jatayu-logo.png"
+          alt="Jatayu Logo"
+          class="logo-mark"
+        />
         <span style="font-size: 17px; font-weight: 600; letter-spacing: -0.3px"
           >Jatayu</span
         >
@@ -436,15 +449,31 @@
         badge.textContent = "SUSPENDED";
       }
 
+      function getDeviceId() {
+        let deviceId = localStorage.getItem("jatayu_device_id");
+        if (!deviceId) {
+          deviceId = `device_${crypto.randomUUID ? crypto.randomUUID().replace(/-/g, "").slice(0, 16) : `${Date.now()}${Math.random().toString(36).slice(2, 10)}`}`;
+          localStorage.setItem("jatayu_device_id", deviceId);
+        }
+        return deviceId;
+      }
+
+      function clearAuthStorage() {
+        const deviceId = localStorage.getItem("jatayu_device_id");
+        localStorage.clear();
+        if (deviceId) localStorage.setItem("jatayu_device_id", deviceId);
+      }
+
       async function apiCall(endpoint, options = {}) {
         const headers = {
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
+          "X-Device-ID": getDeviceId(),
           ...options.headers,
         };
         const res = await fetch(endpoint, { ...options, headers });
         if (res.status === 401) {
-          localStorage.clear();
+          clearAuthStorage();
           document.cookie = "jatayu_token=; Max-Age=0; Path=/; SameSite=Lax";
           throw new Error(
             "Session expired. Please sign in again to contact support.",
@@ -675,7 +704,7 @@
           method: "POST",
           headers: { Authorization: `Bearer ${token}` },
         }).finally(() => {
-          localStorage.clear();
+          clearAuthStorage();
           document.cookie = "jatayu_token=; Max-Age=0; Path=/; SameSite=Lax";
           window.location.href = "/login";
         });

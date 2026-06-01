@@ -47,17 +47,8 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # Verify session is still active
-    if token_data.session_id:
-        session = db.get_session(token_data.session_id)
-        if not session or not session.get("is_active"):
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Session has been invalidated",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
+    token_data = await get_current_user_including_restricted(request, credentials)
 
-    # Verify user still exists and is active
     user = db.get_user_by_id(token_data.user_id)
     if not user:
         raise HTTPException(
@@ -75,6 +66,46 @@ async def get_current_user(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Account has been suspended",
+        )
+
+    return token_data
+
+
+async def get_current_user_including_restricted(
+    request: Request,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)
+) -> TokenData:
+    if credentials is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    token = credentials.credentials
+    token_data = verify_token(token)
+
+    if token_data is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    if token_data.session_id:
+        session = db.get_session(token_data.session_id)
+        if not session or not session.get("is_active"):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Session has been invalidated",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+    user = db.get_user_by_id(token_data.user_id)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found",
         )
 
     return token_data

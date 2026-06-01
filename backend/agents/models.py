@@ -146,6 +146,9 @@ class TransactionMessage:
     fraud_label: Optional[bool] = None     # fraud_score >= threshold (0.0224)
     top_features: Optional[list[str]] = None  # Top contributing XGBoost features
     model_version: Optional[str] = None    # Artifact timestamp used for scoring
+    dataset_influence: Optional[dict[str, Any]] = None
+    # Compact provenance for the PaySim-trained artifacts used by Agent 1:
+    # threshold, XGBoost score components, GNN embedding lookup, and artifact files.
 
     # ── [AGENT 2] PatternDetectionAgent outputs ───────────────────────────────
     pattern_type: Optional[PatternType] = None
@@ -161,6 +164,9 @@ class TransactionMessage:
     # ── [AGENT 4] AlertBlockAgent outputs ────────────────────────────────────
     action_taken: Optional[Action] = None
     explanation: Optional[str] = None   # Plain-English decision rationale
+    suspend_sender: bool = False
+    suspend_receiver: bool = False
+    suspend_mule_network: bool = False
 
     # ── [AGENT 5] ComplianceLoggingAgent outputs ─────────────────────────────
     audit_log: Optional[dict[str, Any]] = None  # Structured audit log entry

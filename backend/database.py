@@ -1042,6 +1042,31 @@ def get_receiver_recent_convergence(
     return {"unique_senders": 0, "txn_count": 0, "total_amount": 0.0}
 
 
+def get_user_transaction_count(
+    user_id: str,
+    *,
+    exclude_transaction_id: Optional[str] = None,
+    lookback_days: int = 90,
+) -> int:
+    """Return recent transaction count for a user as sender or receiver."""
+    since = (datetime.now(timezone.utc) - timedelta(days=lookback_days)).isoformat()
+    params: list[Any] = [user_id, user_id, since]
+    exclusion = ""
+    if exclude_transaction_id:
+        exclusion = " AND transaction_id != ?"
+        params.append(exclude_transaction_id)
+
+    with get_conn() as conn:
+        row = conn.execute(
+            f"""SELECT COUNT(*) as cnt FROM transactions
+                WHERE (sender_id = ? OR receiver_id = ?)
+                  AND initiated_at > ?
+                  {exclusion}""",
+            params,
+        ).fetchone()
+    return int(row["cnt"] if row else 0)
+
+
 def get_sender_time_velocity(
     sender_id: str, lookback_minutes: int = 10
 ) -> dict:
@@ -1159,8 +1184,8 @@ def get_transaction_analytics(days: int = 30) -> dict:
             """SELECT
                    substr(initiated_at, 1, 10) AS bucket,
                    COUNT(*) AS total,
-                   SUM(CASE WHEN status = 'BLOCKED' OR action_taken = 'BLOCK' THEN 1 ELSE 0 END) AS blocked,
-                   SUM(CASE WHEN status = 'HELD' OR action_taken = 'HOLD' THEN 1 ELSE 0 END) AS held,
+                   SUM(CASE WHEN status = 'BLOCKED' THEN 1 ELSE 0 END) AS blocked,
+                   SUM(CASE WHEN status = 'HELD' THEN 1 ELSE 0 END) AS held,
                    SUM(CASE WHEN status IN ('COMPLETED', 'APPROVED') THEN 1 ELSE 0 END) AS approved,
                    SUM(CASE WHEN fraud_label = 1 THEN 1 ELSE 0 END) AS fraud_labeled,
                    AVG(COALESCE(fraud_score, 0)) AS avg_fraud_score,
@@ -1182,7 +1207,7 @@ def get_transaction_analytics(days: int = 30) -> dict:
                               OR risk_level IN ('HIGH', 'CRITICAL')
                          THEN 1 ELSE 0
                        END) AS suspicious,
-                   SUM(CASE WHEN status = 'BLOCKED' OR action_taken = 'BLOCK' THEN 1 ELSE 0 END) AS blocked,
+                   SUM(CASE WHEN status = 'BLOCKED' THEN 1 ELSE 0 END) AS blocked,
                    AVG(COALESCE(fraud_score, 0)) AS avg_fraud_score
                FROM transactions
                WHERE initiated_at >= ?
@@ -1460,7 +1485,13 @@ def get_compliance_reports(report_type: Optional[str] = None, limit: int = 100) 
     return [dict(r) for r in rows]
 
 
-def should_generate_str(fraud_score: float, action_taken: str, user_id: str) -> tuple[bool, str]:
+def should_generate_str(
+    fraud_score: float,
+    action_taken: str,
+    user_id: str,
+    pattern_type: Optional[str] = None,
+    risk_level: Optional[str] = None,
+) -> tuple[bool, str]:
     """
     Check if Suspicious Transaction Report should be generated.
     Returns (should_generate, reason).
@@ -1473,6 +1504,15 @@ def should_generate_str(fraud_score: float, action_taken: str, user_id: str) -> 
 
     # Blocked transaction
     if action_taken == "BLOCK":
+        suspicious_patterns = {
+            "MULE_NETWORK",
+            "ACCOUNT_TAKEOVER",
+            "CIRCULAR_FLOW",
+            "VELOCITY_SPIKE",
+        }
+        if pattern_type in suspicious_patterns or risk_level in {"HIGH", "CRITICAL"}:
+            reasons.append(f"Blocked high-risk {pattern_type or risk_level} transaction")
+
         # Check for multiple blocks in 24h
         with get_conn() as conn:
             since = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()

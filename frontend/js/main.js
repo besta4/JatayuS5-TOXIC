@@ -331,6 +331,20 @@ function _scoreBar(score) {
     </div>`;
 }
 
+function _datasetSignal(influence = {}) {
+  const ratio = influence.threshold_ratio;
+  const mode = influence.artifact_mode || "unknown";
+  const gnn = influence.gnn_embedding || {};
+  const label = ratio != null ? `${Number(ratio).toFixed(1)}x` : mode;
+  const title = [
+    `Artifact: ${mode}`,
+    influence.model_version ? `Version: ${influence.model_version}` : "",
+    influence.decision_threshold != null ? `Threshold: ${Number(influence.decision_threshold).toFixed(4)}` : "",
+    `GNN embedding: ${gnn.used ? "matched" : "not matched"}`,
+  ].filter(Boolean).join(" | ");
+  return `<span title="${_esc(title)}" class="text-[10px] text-indigo-300 font-medium whitespace-nowrap">${_esc(label)}</span>`;
+}
+
 function _badge(val, type = "risk") {
   if (!val) return "—";
   const v = String(val).toLowerCase();
@@ -345,7 +359,7 @@ function _badge(val, type = "risk") {
 }
 
 function renderAgent1(rows) {
-  const head = _th("Txn", "Origin", "Type", "$", "Score", "Flag");
+  const head = _th("Txn", "Origin", "Type", "$", "Score", "Dataset", "Flag");
   const body = rows.map(r => `
     <tr class="border-b border-white/[0.04] hover:bg-white/[0.025]">
       <td class="py-1 px-2 font-mono text-slate-400">${_esc(r.txn_id)}…</td>
@@ -353,6 +367,7 @@ function renderAgent1(rows) {
       <td class="py-1 px-2 text-slate-400">${_esc(r.type || "—")}</td>
       <td class="py-1 px-2 text-slate-300">$${Number(r.amount || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
       <td class="py-1 px-2 min-w-[90px]">${_scoreBar(r.fraud_score)}</td>
+      <td class="py-1 px-2">${_datasetSignal(r.dataset_influence)}</td>
       <td class="py-1 px-2">${r.fraud_label ? '<span class="text-red-400 font-medium">FRAUD</span>' : '<span class="text-green-400">CLEAN</span>'}</td>
     </tr>
   `).join("");
@@ -378,12 +393,13 @@ function renderAgent2(rows) {
 }
 
 function renderAgent3(rows) {
-  const head = _th("Txn", "Origin", "Score", "Pattern", "Risk", "Action (PPO)");
+  const head = _th("Txn", "Origin", "Score", "Model x", "Pattern", "Risk", "Action");
   const body = rows.map(r => `
     <tr class="border-b border-white/[0.04] hover:bg-white/[0.025]">
       <td class="py-1 px-2 font-mono text-slate-400">${_esc(r.txn_id)}…</td>
       <td class="py-1 px-2 text-slate-300 max-w-[80px] truncate">${_esc(r.nameOrig)}</td>
       <td class="py-1 px-2 min-w-[90px]">${_scoreBar(r.fraud_score)}</td>
+      <td class="py-1 px-2 text-indigo-300 text-[10px]">${r.account_context?.model_score_ratio != null ? Number(r.account_context.model_score_ratio).toFixed(1) + "x" : "—"}</td>
       <td class="py-1 px-2">${_badge(r.pattern_type)}</td>
       <td class="py-1 px-2">${_badge(r.risk_level)}</td>
       <td class="py-1 px-2">${_badge(r.recommended_action)}</td>
