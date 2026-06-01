@@ -1,0 +1,20 @@
+2026-05-17 01:28:13 | INFO     | main                           | ======================================================================
+2026-05-17 01:28:13 | INFO     | main                           | 🛡️  JATAYU FRAUD DETECTION SYSTEM - Starting Up
+2026-05-17 01:28:13 | INFO     | main                           | ======================================================================
+2026-05-17 01:28:13 | INFO     | main                           | Database initialised.
+2026-05-17 01:44:17 | INFO     | agents.graph_embeddings_cache  | [DynamicGraphCache] Connected to Redis at redis://localhost:6379/0
+2026-05-17 01:44:17 | INFO     | agents.orchestrator            | [Orchestrator] Redis dynamic graph cache: ENABLED
+2026-05-17 01:44:22 | INFO     | agents.transaction_monitoring_agent | [TransactionMonitoringAgent] Initialized with real model artifacts (version=20260304_120501)
+2026-05-17 01:44:22 | INFO     | agents.pattern_detection_agent | [PatternDetectionAgent] Initialized with window_size=75, graph_cache=enabled
+2026-05-17 01:44:22 | INFO     | agents.orchestrator            | [Orchestrator] PPO policy available but disabled. Set JATAYU_ENABLE_PPO=1 to opt in.
+2026-05-17 01:44:22 | INFO     | agents.risk_assessment_agent   | [RiskAssessmentAgent] Initialized in rule-based mode.
+2026-05-17 01:44:22 | INFO     | agents.alert_block_agent       | [AlertBlockAgent] Initialized (stub explanation mode)
+2026-05-17 01:44:22 | INFO     | agents.compliance_logging_agent | [ComplianceLoggingAgent] Initialized (persisting to C:\Users\besta\Downloads\jatayu\backend\data\audit.jsonl)
+2026-05-17 01:44:22 | INFO     | agents.orchestrator            | [Orchestrator] All 5 agents initialized.
+2026-05-17 01:44:22 | INFO     | agents.pattern_detection_agent | [PatternDetectionAgent] Processing txn=TXND89AD1C63 | Buffer size=1 | Sender=C000000011 | Receiver=M000000001 | Amount=₹10
+2026-05-17 01:44:22 | INFO     | agents.compliance_logging_agent | [AUDIT] txn=TXND89AD1C633CE40CE | action=PASS | risk=LOW | score=0.0059
+2026-05-17 01:45:02 | INFO     | agents.transaction_monitoring_agent | [TransactionMonitoringAgent] Initialized with real model artifacts (version=20260304_120501)
+2026-05-17 01:45:27 | INFO     | agents.transaction_monitoring_agent | [TransactionMonitoringAgent] Initialized with real model artifacts (version=20260304_120501)
+2026-05-17 01:47:58 | INFO     | agents.pattern_detection_agent | [PatternDetectionAgent] Processing txn=TXN342CB6D4F | Buffer size=2 | Sender=M000000001 | Receiver=M000000002 | Amount=₹100000
+2026-05-17 01:47:58 | INFO     | agents.compliance_logging_agent | [AUDIT] txn=TXN342CB6D4FD6947A1 | action=PASS | risk=LOW | score=0.0529
+2026-05-17 01:48:16 | INFO     | agents.transaction_monitoring_agent | [TransactionMonitoringAgent] Initialized with real model artifacts (version=20260304_120501)
